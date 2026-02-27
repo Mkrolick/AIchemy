@@ -6,7 +6,6 @@ The field has advanced rapidly on separate fronts: MILP for retrosynthesis is ma
 
 ## SPARROW comes closest at three out of four
 
-SPARROW (Fromer & Coley, *Nature Computational Science*, 2024) is the single system that satisfies the most criteria. It uses a **MILP formulation** (PuLP/Gurobi solvers) to simultaneously select molecules and synthetic routes for drug discovery campaigns, pulling **real pricing data from the ChemSpace API** for starting materials. Its objective function balances expected information gain against synthetic cost via tunable λ-weights controlling the trade-off between molecule utility, starting material price, and **reaction confidence scores** from ASKCOS's forward predictor. Varying these weights — or using the built-in Bayesian optimization (`--bayes-iters`) to tune them automatically — constitutes a form of sensitivity analysis on how reaction feasibility assumptions shift route selection.
 
 Where SPARROW falls short is enzymatic reactions. It relies entirely on ASKCOS's ~163,000 organic chemistry templates from Reaxys/USPTO. There is no integration of biocatalytic transformations, enzyme databases, or any mechanism to incorporate enzymatic steps. SPARROW is built for medicinal chemistry, not chemoenzymatic synthesis.
 
