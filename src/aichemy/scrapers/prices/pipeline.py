@@ -19,6 +19,8 @@ from collections.abc import Iterable, Sequence
 
 # Trigger registry registration on import.
 from aichemy.scrapers.prices import chemicalbook as _cb  # noqa: F401
+from aichemy.scrapers.prices import mcule as _mc  # noqa: F401
+from aichemy.scrapers.prices import playwright_fishersci as _pw_fs  # noqa: F401
 from aichemy.scrapers.prices import sigma as _sig  # noqa: F401
 from aichemy.scrapers.prices import thermofisher as _tf  # noqa: F401
 from aichemy.scrapers.prices.base import PriceQuote, PriceScraperBase
@@ -27,7 +29,7 @@ from aichemy.scrapers.prices.registry import get_scraper
 
 log = logging.getLogger(__name__)
 
-DEFAULT_VENDOR_ORDER = ["thermofisher", "sigma_aldrich", "chemicalbook"]
+DEFAULT_VENDOR_ORDER = ["fisher_scientific", "chemicalbook", "mcule"]
 
 
 def default_scrapers(

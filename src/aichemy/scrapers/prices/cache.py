@@ -39,7 +39,10 @@ class PriceCache:
         self._path = path
         self._ttl = timedelta(days=ttl_days)
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(path))
+        self._conn = sqlite3.connect(str(path), timeout=30.0)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA busy_timeout=30000")
         self._conn.executescript(self._SCHEMA)
         self._conn.commit()
 
