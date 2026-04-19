@@ -1,0 +1,2 @@
+dedup:
+  reaction_tanimoto_threshold: 1.0
