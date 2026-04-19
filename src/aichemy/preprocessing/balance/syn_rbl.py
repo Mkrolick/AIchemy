@@ -12,10 +12,27 @@ Optional dependency: install with `uv pip install synrbl` OR
 
 from __future__ import annotations
 
+import contextlib
+import io
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+
+from rdkit import RDLogger
 
 log = logging.getLogger(__name__)
+
+# Suppress RDKit's verbose warnings and SYN-RBL's traceback flood.
+RDLogger.DisableLog("rdApp.*")
+
+
+@contextlib.contextmanager
+def _suppress_synrbl_noise() -> Iterator[None]:
+    """Silence SYN-RBL's internal stderr noise during batch calls."""
+    with (
+        contextlib.redirect_stderr(io.StringIO()),
+        contextlib.redirect_stdout(io.StringIO()),
+    ):
+        yield
 
 
 def _import_balancer() -> type:
@@ -32,21 +49,19 @@ def _import_balancer() -> type:
 
 
 def _normalize_for_synrbl(rxn: str) -> str | None:
-    """Drop agent middle-section and validate `reactants>>products` shape.
-
-    USPTO uses 3-part `reactants>agents>products`; SYN-RBL expects 2-part.
-    """
+    """Normalize to `reactants>>products` shape. Fast string checks only."""
     if not rxn or ">" not in rxn:
         return None
     parts = rxn.split(">")
     if len(parts) == 2:
-        return rxn if parts[0] and parts[1] else None
-    if len(parts) == 3:
-        r, _, p = parts
-        if not (r and p):
-            return None
-        return f"{r}>>{p}"
-    return None
+        reactants_str, products_str = parts
+    elif len(parts) == 3:
+        reactants_str, _, products_str = parts
+    else:
+        return None
+    if not reactants_str or not products_str:
+        return None
+    return f"{reactants_str}>>{products_str}"
 
 
 def _try_batch(
@@ -64,8 +79,12 @@ def _try_batch(
     if not pairs:
         return
     try:
-        results = bal.rebalance([r for _, r in pairs])
-        for (i, _), result in zip(pairs, results, strict=True):
+        with _suppress_synrbl_noise():
+            results = bal.rebalance([r for _, r in pairs])
+        # SYN-RBL can silently return fewer results than inputs; don't use strict zip.
+        if not isinstance(results, list) or len(results) != len(pairs):
+            raise ValueError("SYN-RBL returned malformed result set")
+        for (i, _), result in zip(pairs, results, strict=False):
             if isinstance(result, str) and result:
                 out[i] = result
         return
