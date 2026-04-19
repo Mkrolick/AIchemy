@@ -71,8 +71,9 @@ AIchemy-fresh/
 ```
 preprocessing/
 ├── __init__.py
-├── pipeline.py                     # thin orchestrator
+├── pipeline.py                     # programmatic API (for notebooks/tests); NOT a CLI orchestrator — dvc repro is canonical
 ├── io.py                           # Polars parquet I/O + path resolution (AICHEMY_DATA_DIR)
+├── normalize.py                    # merge sources + canonical SMILES + hydrocarbon filter → unified tables
 │
 ├── sources/                        # raw data ingestion
 │   ├── __init__.py
@@ -88,23 +89,28 @@ preprocessing/
 │
 ├── dedup/
 │   ├── __init__.py
-│   ├── molecules.py                # xref-based + Tanimoto=1.0 structural collapsing
-│   └── reactions.py                # canonical-SMILES hash → Tanimoto cluster
+│   ├── molecules.py                # primary: InChIKey equality; secondary: Tanimoto=1.0 collision check; emits old→canonical mol_id map
+│   └── reactions.py                # canonical-SMILES hash → Tanimoto cluster; rewrites reactant/product mol_ids via the dedup map
 │
 ├── balance/
 │   ├── __init__.py
-│   └── syn_rbl.py                  # SYN-RBL wrapper; returns only successfully balanced reactions
+│   ├── validate.py                 # universal: RDKit atom-count check → populates balanced: bool on all reactions (MetaNetX + USPTO)
+│   └── syn_rbl.py                  # USPTO-specific: SYN-RBL attempt-at-balance; runs before validate
 │
 └── augment/
     ├── __init__.py
     ├── yields.py                   # global_mean / per_ec / fixed imputation strategies
     ├── prices.py                   # ChemPrize via PriceLookup protocol (stub available for tests)
-    └── thermo.py                   # ΔG' handling (forward-only flag for MetaNetX)
+    └── directionality.py           # MetaNetX directionality flag → forward-only reactions (proxy for thermodynamic favorability)
 ```
 
-**Split-by-concern rationale.** Chemistry primitives (canonicalization, Tanimoto, carbon counting) are source-agnostic and belong in `chem/`. Ingestion is source-specific and lives in `sources/`. Dedup operates on the merged post-normalization dataset — giving it its own subpackage lets molecule-dedup and reaction-dedup share chemistry utilities without entangling source-specific parsing. Augmentation stages (yields, prices, thermo) operate on the full merged table and are independent of source.
+**Split-by-concern rationale.** Chemistry primitives (canonicalization, Tanimoto, carbon counting) are source-agnostic and belong in `chem/`. Ingestion is source-specific and lives in `sources/`. `normalize.py` owns the merge step: it reads both raw source parquets and produces a single unified `molecules`/`reactions` pair on a common schema, applying canonical SMILES and the hydrocarbon filter along the way. Dedup then operates on the merged post-normalization dataset — giving it its own subpackage lets molecule-dedup and reaction-dedup share chemistry utilities without entangling source-specific parsing. Augmentation stages (yields, prices, directionality) operate on the full merged table and are independent of source.
 
 Alternatives considered: split-by-source (duplicates chemistry utilities); split-by-pipeline-stage (files get too large, primitives get buried as helpers). Neither provides the reuse + isolation that split-by-concern gives.
+
+**Dedup identity contract.** Molecule dedup is authoritative: it picks the canonical `mol_id` for each equivalence class (MetaNetX ID when any source contributes one, else InChIKey), and emits a `dedup_map: dict[str, str]` mapping every pre-dedup `mol_id` to its canonical ID. Reaction dedup (and the export stage) applies this map to rewrite all reactant/product `mol_id` references. After this step, every `mol_id` referenced from `reactions.parquet` is guaranteed to resolve to a row in `molecules.parquet`. A post-dedup integrity check asserts this invariant and fails the stage if violated.
+
+**Molecule identity test.** Primary check is canonical SMILES / InChIKey equality; this is the gold standard and should catch ~all structural duplicates post-canonicalization. Tanimoto=1.0 on 2048-bit Morgan fingerprints runs as a secondary consistency check — fingerprint collisions exist, so Tanimoto alone is not sufficient for identity, but matching Tanimoto with mismatched InChIKey flags canonicalization bugs worth investigating.
 
 ### Data contracts
 
@@ -126,10 +132,12 @@ Two core tables flow through the pipeline, written as Polars-compatible parquet 
 - `type: enum{enzymatic, chemical}`
 - `yield: float`
 - `delta_g: float | None` — nullable; non-null only for enzymatic where relevant
-- `balanced: bool`
+- `balanced: bool` — populated by `balance/validate.py` for all reactions (MetaNetX + USPTO), not only successfully SYN-RBL'd USPTO rows
 - `source: enum{metanetx, uspto}`
 
-Schemas declared as `patito` models in `aichemy.preprocessing.io`, validated at stage boundaries (after ingest, after dedup, before export).
+**Coefficient semantics.** `coefficient` is stored as `float` for parquet-schema simplicity, but post-balance coefficients are *expected to be integer-valued* (non-integer stoichiometry would indicate a half-reaction or an unnormalized balancer output). `balance/validate.py` enforces this: if SYN-RBL emits a non-integer coefficient for a USPTO reaction, the balancer multiplies through the least common denominator before emitting; if that fails, the reaction is marked `balanced=False`. For MetaNetX, coefficients are already integer in the source data. The downstream MILP solver can therefore assume integer coefficients when formulating mass-balance constraints.
+
+Schemas declared as `patito` models in `aichemy.preprocessing.io`, validated at stage boundaries (after ingest, after normalize, after dedup, after balance, before export).
 
 ### Pricing adapter
 
@@ -143,7 +151,7 @@ class ChemPrizeClient(PriceLookup): ...   # real implementation, written when ac
 class StubPriceLookup(PriceLookup): ...   # returns fixed / tabulated prices for tests and early dev
 ```
 
-`augment.prices` takes a `PriceLookup` in its constructor. The pipeline wiring (`pipeline.py`) selects the implementation based on config (e.g., `prices.backend: chemprize` vs. `prices.backend: stub`). This keeps the pipeline runnable end-to-end with stub prices while ChemPrize integration proceeds in parallel.
+`augment.prices` takes a `PriceLookup` in its constructor. A small factory (`augment.prices.make_lookup(config) -> PriceLookup`) selects the implementation based on `prices.backend` (`chemprize` vs. `stub`); both the CLI subcommand and `pipeline.run_all` use this factory, so the two invocation paths stay consistent. This keeps the pipeline runnable end-to-end with stub prices while ChemPrize integration proceeds in parallel.
 
 ## Config
 
@@ -199,6 +207,13 @@ def load_config(path: Path, overrides: list[Path] = ()) -> PreprocessingConfig:
 
 Override files contain only the keys they modify. Last override wins.
 
+**Deep-merge semantics** (pinned to avoid subtle bugs):
+- **Dict-valued keys**: recursively merged (override keys are added / existing keys are replaced at leaf).
+- **Scalar-valued keys**: replaced wholesale.
+- **List- and tuple-valued keys**: *replaced* wholesale, never concatenated. An override specifying `yields.enzymatic_prior_range: [0.9, 0.95]` replaces the base `[0.85, 0.95]` in full.
+
+This is tested explicitly in `tests/unit/test_config.py` including the list-replacement case.
+
 ### CLI (Typer)
 
 Each subcommand wraps a single pipeline stage: load config → call stage function → write parquet.
@@ -210,15 +225,17 @@ aichemy ingest uspto          --config configs/default.yaml
 aichemy normalize             --config configs/default.yaml
 aichemy dedup molecules       --config configs/default.yaml
 aichemy dedup reactions       --config configs/default.yaml
-aichemy balance uspto         --config configs/default.yaml
+aichemy balance uspto         --config configs/default.yaml   # SYN-RBL reconstruction
+aichemy balance validate      --config configs/default.yaml   # universal atom-count check → balanced: bool
 aichemy augment yields        --config configs/default.yaml
 aichemy augment prices        --config configs/default.yaml
-aichemy augment thermo        --config configs/default.yaml
+aichemy augment directionality --config configs/default.yaml
 aichemy export                --config configs/default.yaml
-aichemy pipeline run          --config configs/default.yaml --override configs/profiles/strict_dedup.yaml
 ```
 
 CLI subcommands take `--config path` and repeatable `--override path` flags.
+
+**No `aichemy pipeline run` subcommand.** End-to-end pipeline execution is owned by `dvc repro`, which is the single canonical orchestrator: it tracks dependencies, skips unchanged stages, and versions outputs. `preprocessing/pipeline.py` exists as a *programmatic* API — functions like `run_all(config) -> ProcessedTables` callable from notebooks and integration tests — but has no CLI surface. This keeps there from being two drift-prone paths to "run the whole thing."
 
 ## DVC Integration
 
@@ -244,9 +261,11 @@ stages:
       - data/interim/metanetx/molecules_raw.parquet
 
   # ingest_uspto, normalize, dedup_molecules, dedup_reactions,
-  # balance_uspto, augment_yields, augment_prices, augment_thermo, export
-  # — same shape, chained via parquet paths
+  # balance_uspto, balance_validate, augment_yields, augment_prices,
+  # augment_directionality, export — same shape, chained via parquet paths
 ```
+
+**Stage ordering constraint.** `balance_uspto` (SYN-RBL reconstruction) runs *before* `balance_validate` (universal atom-count check). SYN-RBL gets a chance to fix USPTO rows first; `balance_validate` then computes the `balanced: bool` column for every reaction across both sources. MetaNetX reactions skip SYN-RBL entirely but are still validated — catching known curation gaps (missing protons, implicit waters) rather than silently trusting MetaNetX's pre-curation.
 
 ### DVC remote (local, Git-LFS-style)
 
@@ -284,19 +303,22 @@ tests/
 │   ├── test_smiles.py              # canonicalization, parse edge cases, invalid input
 │   ├── test_similarity.py          # identical → 1.0; known pairs; fingerprint determinism
 │   ├── test_filters.py             # carbon count with aromatic rings, H2O exclusion
-│   ├── test_dedup_molecules.py     # MetaNetX xref collapsing; Tanimoto=1.0 path
-│   ├── test_dedup_reactions.py     # canonical-SMILES hash + Tanimoto cluster
+│   ├── test_normalize.py           # merge semantics: duplicate IDs across sources, schema unification
+│   ├── test_dedup_molecules.py     # InChIKey primary; Tanimoto=1.0 collision check; dedup_map construction
+│   ├── test_dedup_reactions.py     # canonical-SMILES hash + Tanimoto cluster; mol_id rewriting via dedup_map
+│   ├── test_balance_validate.py    # atom-count check: known balanced/unbalanced cases, MetaNetX proton/water gaps
 │   ├── test_yield_imputation.py    # each strategy in isolation
-│   └── test_config.py              # YAML load + override layering + Pydantic validation
+│   └── test_config.py              # YAML load + override layering + list-replace semantics + Pydantic validation
 └── integration/
     ├── test_metanetx_end_to_end.py # fixture → full pipeline → asserted output schema and counts
+    ├── test_referential_integrity.py # every reactions' mol_id resolves in molecules.parquet post-dedup
     └── test_cli_smoke.py           # CLI subcommands succeed on fixture inputs
 ```
 
 ### Strategy
 
-- Unit tests target pure functions in `chem/` (including `chem/filters.py`), `dedup/`, `augment/yields.py`, and `config.py`.
-- Integration tests run the full pipeline on fixture directories, asserting schemas and row counts.
+- Unit tests target pure functions in `chem/` (including `chem/filters.py`), `dedup/` (including the mol_id rewrite contract), `normalize.py`, `balance/validate.py`, `augment/yields.py`, and `config.py` (including list-replace override semantics).
+- Integration tests run the full pipeline on fixture directories, asserting schemas, row counts, and the dedup referential-integrity invariant (every reactions' `mol_id` resolves in `molecules.parquet`).
 - Prices use `StubPriceLookup`. ChemPrize is not exercised in CI.
 - No test hits the live MetaNetX or USPTO downloads; all raw inputs are fixture files.
 
@@ -393,9 +415,10 @@ CI uses fixture data only; it does not contact DVC remotes or external services.
 
 These are not part of this spec's scope but shape the design:
 
-- **`src/aichemy/solver/`** — MILP formulation over the hypergraph, using `gurobipy`. Will consume `data/processed/{reactions,molecules}.parquet` and config sections not yet defined (`configs/solver/`).
+- **`src/aichemy/solver/`** — MILP formulation over the hypergraph, using `gurobipy`. Will consume `data/processed/{reactions,molecules}.parquet` and config sections not yet defined (`configs/solver/`). Can rely on integer-valued stoichiometric coefficients per the contract in Data Contracts.
 - **`src/aichemy/scrapers/`** — patent-filing scrapers for fixed costs and stoichiometry augmentation, per the proposal's Todos section.
 - **`src/aichemy/eval/`** — benchmarking the MILP's output against known profitable products.
+- **`augment/thermo.py`** — eQuilibrator API integration for computed ΔG'°. Would populate `delta_g` for MetaNetX reactions where currently only the directionality flag is used. Lands as a sibling to `augment/directionality.py`; neither replaces the other.
 - **S3 DVC remote migration** — swap `local_store` URL; `dvc.yaml` unchanged.
 - **Real ChemPrize integration** — implement `ChemPrizeClient(PriceLookup)`; no other module changes.
 
@@ -403,5 +426,6 @@ These are not part of this spec's scope but shape the design:
 
 1. ChemPrize API/licensing access — unblocks `augment.prices` real implementation.
 2. USPTO slice commitment — `grants_1976_2016` is the default, but full-application scope is configurable.
-3. ΔG' data source for MetaNetX — trust the directionality flag as the proposal suggests, or augment with eQuilibrator API queries. Default: directionality flag; eQuilibrator can be added later as an `augment.thermo` branch.
+3. ΔG' enrichment for MetaNetX — this spec uses `augment/directionality.py` only (trust MetaNetX's directionality flag). A future `augment/thermo.py` can layer eQuilibrator ΔG'° on top without replacing directionality.
 4. Raw-data download URLs for `fetch_raw` stage — pinned in config, manual override via local files documented in README.
+5. MetaNetX atom-balance failure handling — `balance/validate.py` will identify unbalanced MetaNetX rows (proton/water curation gaps); initial policy is to mark `balanced=False` and pass them through with that flag visible to the solver (which can then optionally exclude them). Whether to attempt automated patching (e.g., proton-balancing heuristics) is a follow-up decision once we have a sense of how many rows are affected.
