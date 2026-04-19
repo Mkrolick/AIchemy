@@ -20,6 +20,7 @@ from typing import Any
 from urllib.parse import quote_plus, urljoin
 
 from aichemy.scrapers.prices.base import PriceQuote, PriceScraperBase
+from aichemy.scrapers.prices.pubchem import PubChemResolver
 from aichemy.scrapers.prices.registry import register_scraper
 
 log = logging.getLogger(__name__)
@@ -54,18 +55,47 @@ _UNIT_TO_GRAMS = {
 class ChemicalBookScraper(PriceScraperBase):
     vendor_name = "chemicalbook"
 
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        # Shared PubChem resolver for SMILES -> CAS
+        self._pubchem = PubChemResolver()
+
+    def close(self) -> None:
+        super().close()
+        self._pubchem.close()
+
     def _fetch_quote(self, smiles: str) -> PriceQuote | None:
-        # ChemicalBook's search is name/CAS-based; SMILES rarely works directly.
-        # We encode the SMILES; if search has 0 hits, bail. This is a cheap
-        # implementation — smarter lookup would pre-convert SMILES -> CAS
-        # via PubChem, then search by CAS.
-        url = SEARCH_URL.format(query=quote_plus(smiles))
-        resp = self._get(url)
-        if resp is None or resp.status_code != 200:
+        # Step 1: SMILES -> identifiers via PubChem.
+        ids = self._pubchem.resolve(smiles)
+        if ids is None:
             return None
 
-        # Find the first product link (anchor tag with /CAS/ or /ProductCAS)
-        product_url = self._extract_first_product_link(resp.text)
+        # Empirically, ChemicalBook's /Search_EN.aspx blocks CAS-number
+        # searches with 503; name-based search (IUPAC or common name) works.
+        # Try IUPAC first, then bulk synonyms, then CAS as last resort.
+        candidates: list[str] = []
+        if ids.iupac_name:
+            candidates.append(ids.iupac_name)
+        for syn in ids.synonyms[:5]:
+            if syn and syn not in candidates:
+                candidates.append(syn)
+        for cas in ids.cas:
+            if cas not in candidates:
+                candidates.append(cas)
+
+        product_url: str | None = None
+        used_query: str | None = None
+        for query in candidates:
+            url = SEARCH_URL.format(query=quote_plus(query))
+            resp = self._get(url)
+            if resp is None or resp.status_code != 200:
+                continue
+            candidate_url = self._extract_first_product_link(resp.text)
+            if candidate_url:
+                product_url = candidate_url
+                used_query = query
+                break
+
         if not product_url:
             return None
 
@@ -83,6 +113,7 @@ class ChemicalBookScraper(PriceScraperBase):
             vendor=self.vendor_name,
             source_url=product_url,
             fetched_at=datetime.now(UTC),
+            extra={"query": used_query or "", "pubchem_cid": str(ids.cid)},
         )
 
     @staticmethod
