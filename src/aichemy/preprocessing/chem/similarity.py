@@ -9,7 +9,7 @@ from rdkit.DataStructs.cDataStructs import ExplicitBitVect
 
 def morgan_fingerprint(mol: Mol, radius: int = 2, n_bits: int = 2048) -> ExplicitBitVect:
     """Compute Morgan (ECFP-like) fingerprint as an RDKit bit vector."""
-    return AllChem.GetMorganFingerprintAsBitVect(mol, radius, nBits=n_bits)  # type: ignore[attr-defined]
+    return AllChem.GetMorganFingerprintAsBitVect(mol, radius, nBits=n_bits)
 
 
 def tanimoto(fp_a: ExplicitBitVect, fp_b: ExplicitBitVect) -> float:
