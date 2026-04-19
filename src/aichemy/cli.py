@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import polars as pl
 import typer
 
 from aichemy.config import PreprocessingConfig, load_config
@@ -104,11 +105,43 @@ def normalize(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """Merge sources, canonicalize SMILES, apply hydrocarbon filter. STUB."""
+    """Merge MetaNetX + USPTO sources, canonicalize, apply hydrocarbon filter."""
+    from aichemy.preprocessing import normalize as normalize_module
+
     cfg = _load(config, override)
-    write_empty_reactions(interim_path(cfg, "normalized", "reactions.parquet"))
-    write_empty_molecules(interim_path(cfg, "normalized", "molecules.parquet"))
-    typer.echo("[STUB] normalize: wrote empty normalized parquets.")
+    mnx_mol_in = interim_path(cfg, "metanetx", "molecules_raw.parquet")
+    mnx_rxn_in = interim_path(cfg, "metanetx", "reactions_raw.parquet")
+    uspto_rxn_in = interim_path(cfg, "uspto", "reactions_raw.parquet")
+    mol_out = interim_path(cfg, "normalized", "molecules.parquet")
+    rxn_out = interim_path(cfg, "normalized", "reactions.parquet")
+
+    if not (mnx_mol_in.exists() and mnx_rxn_in.exists()):
+        write_empty_molecules(mol_out)
+        write_empty_reactions(rxn_out)
+        typer.echo("[normalize] upstream MetaNetX interim missing; wrote empty parquets.")
+        return
+
+    molecules = read_molecules(mnx_mol_in)
+    molecules = normalize_module.canonicalize_molecules(molecules)
+
+    reactions = read_reactions(mnx_rxn_in)
+    if uspto_rxn_in.exists():
+        uspto_reactions = read_reactions(uspto_rxn_in)
+        reactions = pl.concat([reactions, uspto_reactions], how="diagonal_relaxed")
+
+    # Apply the hydrocarbon filter using the MetaNetX carbon-counted molecules
+    # table. USPTO reactions will mostly be filtered out until their SMILES
+    # are parsed into mol_ids (a Stage 03 follow-up).
+    filtered = normalize_module.filter_reactions_by_carbon(
+        reactions, molecules, min_carbon=cfg.filter.min_carbon_count
+    )
+
+    write_molecules(molecules, mol_out)
+    write_reactions(filtered, rxn_out)
+    typer.echo(
+        f"[normalize] wrote {molecules.height} molecules, {filtered.height} reactions "
+        f"(kept {filtered.height} of {reactions.height} after carbon filter)."
+    )
 
 
 @dedup_app.command("molecules")
