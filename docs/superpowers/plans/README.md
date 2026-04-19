@@ -14,18 +14,20 @@ Inline execution via `superpowers:executing-plans` also works if Ralph's shell q
 
 | # | Stage | Plan | Status | Blockers |
 |---|---|---|---|---|
-| 01 | fetch-raw | `2026-04-19-stage-01-fetch-raw.md` | blocked | Needs pinned MetaNetX + USPTO URLs |
-| 02 | ingest metanetx | `2026-04-19-stage-02-ingest-metanetx.md` | fixture-driven | — |
-| 03 | ingest uspto | `2026-04-19-stage-03-ingest-uspto.md` | fixture-driven | — |
-| 04 | normalize | `2026-04-19-stage-04-normalize.md` | — | — |
-| 05 | dedup molecules | `2026-04-19-stage-05-dedup-molecules.md` | — | — |
-| 06 | dedup reactions | `2026-04-19-stage-06-dedup-reactions.md` | — | — |
-| 07 | balance uspto (SYN-RBL) | `2026-04-19-stage-07-balance-uspto.md` | blocked | SYN-RBL package availability |
-| 08 | balance validate | `2026-04-19-stage-08-balance-validate.md` | — | — |
-| 09 | augment yields | `2026-04-19-stage-09-augment-yields.md` | — | — |
-| 10 | augment prices | `2026-04-19-stage-10-augment-prices.md` | partial | ChemPrize API access unresolved; StubPriceLookup wired |
-| 11 | augment directionality | `2026-04-19-stage-11-augment-directionality.md` | — | — |
-| 12 | export | `2026-04-19-stage-12-export.md` | — | — |
+| 01 | fetch-raw | `2026-04-19-stage-01-fetch-raw.md` | 🔴 blocked (stub) | Needs pinned MetaNetX + USPTO URLs (Open Item 04) |
+| 02 | ingest metanetx | `2026-04-19-stage-02-ingest-metanetx.md` | ✅ **done** | — |
+| 03 | ingest uspto | `2026-04-19-stage-03-ingest-uspto.md` | 🟡 stub | fixture-driven; follow-up plan ready |
+| 04 | normalize | `2026-04-19-stage-04-normalize.md` | ✅ **done** | — |
+| 05 | dedup molecules | `2026-04-19-stage-05-dedup-molecules.md` | ✅ **done** | — |
+| 06 | dedup reactions | `2026-04-19-stage-06-dedup-reactions.md` | ✅ **done** | — |
+| 07 | balance uspto (SYN-RBL) | `2026-04-19-stage-07-balance-uspto.md` | 🔴 blocked (stub) | SYN-RBL package availability (Open Item 06) |
+| 08 | balance validate | `2026-04-19-stage-08-balance-validate.md` | ✅ **done** | — |
+| 09 | augment yields | `2026-04-19-stage-09-augment-yields.md` | ✅ **done** | — |
+| 10 | augment prices | `2026-04-19-stage-10-augment-prices.md` | ✅ **done (MVP)** | Web-scraping + ZINC layers pending; PubChem + cache + chain live |
+| 11 | augment directionality | `2026-04-19-stage-11-augment-directionality.md` | ✅ **done** | — |
+| 12 | export | `2026-04-19-stage-12-export.md` | ✅ **done** | — |
+
+**Completed overnight 2026-04-19:** Stages 02, 04, 05, 06, 08, 09, 10 (MVP), 11, 12. All with TDD unit tests, CLI wiring, and DVC-stage integration. 121 tests passing, all lint/typecheck green, `dvc repro` clean end-to-end.
 
 ## Execution Order
 
