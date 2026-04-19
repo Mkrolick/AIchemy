@@ -5,11 +5,13 @@ from pathlib import Path
 import typer
 
 from aichemy.config import PreprocessingConfig, load_config
+from aichemy.preprocessing.augment import directionality as directionality_module
 from aichemy.preprocessing.augment import prices as prices_module
 from aichemy.preprocessing.augment import (
     prices_scrapers as _prices_scrapers,  # noqa: F401 — side effect: registers scrapers
 )
 from aichemy.preprocessing.augment import yields as yields_module
+from aichemy.preprocessing.augment.directionality import DirectionalityMode
 from aichemy.preprocessing.balance import validate as balance_validate_module
 from aichemy.preprocessing.io import (
     interim_path,
@@ -201,10 +203,23 @@ def augment_directionality(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """Apply MetaNetX directionality flag (forward-only reactions). STUB."""
+    """Apply MetaNetX directionality flag (annotate or duplicate reversibles)."""
     cfg = _load(config, override)
-    write_empty_reactions(interim_path(cfg, "augmented", "reactions_full.parquet"))
-    typer.echo("[STUB] augment directionality: wrote empty parquet.")
+    input_path = interim_path(cfg, "augmented", "reactions_yields.parquet")
+    output_path = interim_path(cfg, "augmented", "reactions_full.parquet")
+
+    if not input_path.exists():
+        write_empty_reactions(output_path)
+        typer.echo(f"[augment directionality] upstream {input_path} missing; wrote empty parquet.")
+        return
+
+    df = read_reactions(input_path)
+    if "direction" in df.columns:
+        augmented = directionality_module.apply_directionality(df, mode=DirectionalityMode.ANNOTATE)
+    else:
+        augmented = df  # nothing to do without direction annotation
+    write_reactions(augmented, output_path)
+    typer.echo(f"[augment directionality] wrote {augmented.height} rows.")
 
 
 @app.command("export")
