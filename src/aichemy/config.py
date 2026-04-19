@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
 
@@ -24,7 +24,7 @@ class FilterConfig(BaseModel):
     min_carbon_count: int = 2
 
 
-class YieldImputationStrategy(str, Enum):
+class YieldImputationStrategy(StrEnum):
     GLOBAL_MEAN = "global_mean"
     PER_EC_CLASS = "per_ec_class"
     FIXED = "fixed"

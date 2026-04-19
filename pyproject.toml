@@ -53,3 +53,25 @@ addopts = "-ra --strict-markers"
 [tool.mypy]
 strict = true
 files = ["src/aichemy"]
+
+[[tool.mypy.overrides]]
+module = ["rdkit.*", "patito.*", "yaml"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+# RDKit lacks type stubs; relax strictness in modules that use it directly.
+[[tool.mypy.overrides]]
+module = [
+    "aichemy.preprocessing.chem.smiles",
+    "aichemy.preprocessing.chem.similarity",
+    "aichemy.preprocessing.chem.filters",
+    "aichemy.preprocessing.chem.identifiers",
+]
+disallow_untyped_calls = false
+warn_return_any = false
+
+# patito's Model is Any-typed; subclasses and polars schema dicts trigger noise.
+[[tool.mypy.overrides]]
+module = ["aichemy.preprocessing.io"]
+disallow_subclassing_any = false
+disable_error_code = ["misc", "arg-type"]

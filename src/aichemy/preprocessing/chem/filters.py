@@ -10,7 +10,11 @@ def carbon_count(smiles: str) -> int:
     mol = parse(smiles)
     if mol is None:
         return 0
-    return sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() == 6)
+    count = 0
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() == 6:
+            count += 1
+    return count
 
 
 def has_hydrocarbon_reactant_and_product(
