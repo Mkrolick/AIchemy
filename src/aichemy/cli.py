@@ -26,6 +26,7 @@ from aichemy.preprocessing.io import (
     write_molecules,
     write_reactions,
 )
+from aichemy.solver.cli import solver_app
 
 app = typer.Typer(help="AIchemy preprocessing pipeline.", no_args_is_help=True)
 ingest_app = typer.Typer(help="Ingest raw data from a source.")
@@ -36,6 +37,7 @@ app.add_typer(ingest_app, name="ingest")
 app.add_typer(dedup_app, name="dedup")
 app.add_typer(balance_app, name="balance")
 app.add_typer(augment_app, name="augment")
+app.add_typer(solver_app, name="solve")
 
 
 def _load(config: Path, overrides: list[Path]) -> PreprocessingConfig:
