@@ -1,6 +1,15 @@
 sources:
   metanetx_version: "4.4"
   uspto_slice: grants_1976_2016
+  metanetx_urls:
+    reac_prop: https://www.metanetx.org/ftp/4.4/reac_prop.tsv
+    chem_prop: https://www.metanetx.org/ftp/4.4/chem_prop.tsv
+    reac_xref: https://www.metanetx.org/ftp/4.4/reac_xref.tsv
+    chem_xref: https://www.metanetx.org/ftp/4.4/chem_xref.tsv
+  uspto_urls:
+    # Figshare DOI: 10.6084/m9.figshare.5104873 (Lowe 2017)
+    grants_smiles: https://ndownloader.figshare.com/files/8664379
+    applications_smiles: https://ndownloader.figshare.com/files/8664370
 
 filter:
   min_carbon_count: 2

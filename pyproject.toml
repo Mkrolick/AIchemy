@@ -18,6 +18,7 @@ dependencies = [
 [project.optional-dependencies]
 solver = ["gurobipy>=11.0"]
 notebooks = ["jupyter", "pandas", "matplotlib"]
+balance = ["synrbl>=1.0.6"]           # optional USPTO atom-balancing (Stage 07)
 
 [project.scripts]
 aichemy = "aichemy.cli:app"
@@ -57,7 +58,7 @@ strict = true
 files = ["src/aichemy"]
 
 [[tool.mypy.overrides]]
-module = ["rdkit.*", "patito.*", "yaml"]
+module = ["rdkit.*", "patito.*", "yaml", "synrbl", "synrbl.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
 
@@ -69,6 +70,7 @@ module = [
     "aichemy.preprocessing.chem.filters",
     "aichemy.preprocessing.chem.identifiers",
     "aichemy.preprocessing.balance.validate",
+    "aichemy.preprocessing.balance.syn_rbl",
     "aichemy.preprocessing.normalize",
     "aichemy.preprocessing.dedup.molecules",
     "aichemy.preprocessing.dedup.reactions",

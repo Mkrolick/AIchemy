@@ -53,11 +53,36 @@ def fetch_raw(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """Download raw MetaNetX and USPTO source data. STUB: creates empty dirs."""
+    """Download raw MetaNetX (TSV) and USPTO (7z) source data."""
+    from aichemy.preprocessing.sources.fetch import download
+
     cfg = _load(config, override)
-    raw_path(cfg, "metanetx").mkdir(parents=True, exist_ok=True)
-    raw_path(cfg, "uspto").mkdir(parents=True, exist_ok=True)
-    typer.echo("[STUB] fetch-raw: created raw/metanetx and raw/uspto directories.")
+    mnx_dir = raw_path(cfg, "metanetx")
+    uspto_dir = raw_path(cfg, "uspto")
+    mnx_dir.mkdir(parents=True, exist_ok=True)
+    uspto_dir.mkdir(parents=True, exist_ok=True)
+
+    mnx_urls = cfg.sources.metanetx_urls
+    mnx_map = {
+        "reac_prop.tsv": mnx_urls.reac_prop,
+        "chem_prop.tsv": mnx_urls.chem_prop,
+        "reac_xref.tsv": mnx_urls.reac_xref,
+        "chem_xref.tsv": mnx_urls.chem_xref,
+    }
+    for filename, url in mnx_map.items():
+        download(url, mnx_dir / filename)
+
+    # USPTO: grants by default; full slice pulls both grants + applications.
+    uspto_urls = cfg.sources.uspto_urls
+    uspto_map = {"grants_smiles.7z": uspto_urls.grants_smiles}
+    if cfg.sources.uspto_slice == "full":
+        uspto_map["applications_smiles.7z"] = uspto_urls.applications_smiles
+    for filename, url in uspto_map.items():
+        download(url, uspto_dir / filename)
+
+    typer.echo(
+        f"[fetch-raw] MetaNetX ({len(mnx_map)} files) and USPTO ({len(uspto_map)} files) ready."
+    )
 
 
 @ingest_app.command("metanetx")
@@ -227,10 +252,49 @@ def balance_uspto(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """SYN-RBL atom-mapping for USPTO reactions. STUB."""
+    """Run SYN-RBL atom-balancing on USPTO reactions; MetaNetX rows pass through."""
     cfg = _load(config, override)
-    write_empty_reactions(interim_path(cfg, "balanced", "reactions.parquet"))
-    typer.echo("[STUB] balance uspto: wrote empty balanced parquet.")
+    input_path = interim_path(cfg, "deduped", "reactions.parquet")
+    output_path = interim_path(cfg, "balanced", "reactions.parquet")
+
+    if not input_path.exists():
+        write_empty_reactions(output_path)
+        typer.echo(f"[balance uspto] upstream {input_path} missing; wrote empty parquet.")
+        return
+
+    reactions = read_reactions(input_path)
+    if reactions.height == 0:
+        write_empty_reactions(output_path)
+        typer.echo("[balance uspto] input empty; nothing to balance.")
+        return
+
+    uspto_mask = reactions["source"] == "uspto"
+    uspto_count = int(uspto_mask.sum())
+    if uspto_count == 0:
+        # Only MetaNetX rows present — pass through unchanged.
+        write_reactions(reactions, output_path)
+        typer.echo(
+            f"[balance uspto] no USPTO rows to balance; passed through {reactions.height} rows."
+        )
+        return
+
+    from aichemy.preprocessing.balance import syn_rbl as syn_rbl_module
+
+    uspto_rows = reactions.filter(uspto_mask)
+    balanced = syn_rbl_module.balance_reactions(uspto_rows["reaction_smiles"].to_list())
+    # Replace the reaction_smiles column for balanced USPTO rows; drop
+    # rows the balancer couldn't fix (None).
+    fixed = uspto_rows.with_columns(pl.Series("reaction_smiles", balanced)).filter(
+        pl.col("reaction_smiles").is_not_null()
+    )
+
+    other = reactions.filter(~uspto_mask)
+    merged = pl.concat([other, fixed], how="diagonal_relaxed")
+    write_reactions(merged, output_path)
+    typer.echo(
+        f"[balance uspto] balanced {fixed.height} of {uspto_count} USPTO rows "
+        f"(kept {merged.height} total)."
+    )
 
 
 @balance_app.command("validate")
