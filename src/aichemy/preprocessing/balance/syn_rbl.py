@@ -68,33 +68,46 @@ def _try_batch(
     bal: object,
     pairs: list[tuple[int, str]],
     out: list[str | None],
-    min_batch: int = 1,
+    max_retry_depth: int = 1,
+    _depth: int = 0,
 ) -> None:
-    """Try SYN-RBL on `pairs`; on crash, binary-subdivide recursively.
+    """Try SYN-RBL on `pairs`; on crash, optionally subdivide once.
 
-    Successful results land in ``out[i]``. If a batch of size N crashes,
-    we recurse into two halves — limits the blast radius of a single bad
-    input to log2(chunk_size) retries instead of N per-reaction calls.
+    Successful results land in ``out[i]``. If the batch crashes AND
+    ``_depth < max_retry_depth``, we split in half and retry — giving at
+    most one level of recovery. Deeper recursion is disabled because each
+    re-init of SYN-RBL costs ~5s regardless of batch size, which balloons
+    runtime by 10-100x without meaningfully improving recovery rate.
     """
     if not pairs:
         return
     try:
         with _suppress_synrbl_noise():
             results = bal.rebalance([r for _, r in pairs])
-        # SYN-RBL can silently return fewer results than inputs; don't use strict zip.
-        if not isinstance(results, list) or len(results) != len(pairs):
-            raise ValueError("SYN-RBL returned malformed result set")
+        # SYN-RBL can return a list, a pandas DataFrame, or sometimes a
+        # truncated result. Best-effort: pull out any string entries and
+        # zip by position (len mismatch just means we drop trailing rxns).
+        if hasattr(results, "to_dict"):  # pandas DataFrame
+            results = (
+                results["reaction_smiles"].tolist()
+                if "reaction_smiles" in results
+                else list(results)
+            )
+        if results is None or len(results) == 0:
+            raise ValueError("SYN-RBL returned empty results")
         for (i, _), result in zip(pairs, results, strict=False):
             if isinstance(result, str) and result:
                 out[i] = result
         return
     except Exception as exc:
-        if len(pairs) <= min_batch:
-            log.debug("SYN-RBL gave up on %d reaction(s): %s", len(pairs), type(exc).__name__)
-            return
+        log.warning(
+            "SYN-RBL batch of %d failed (depth=%d, %s).", len(pairs), _depth, type(exc).__name__
+        )
+        if _depth >= max_retry_depth or len(pairs) <= 1:
+            return  # skip — accept losing this batch rather than multiply init cost
         mid = len(pairs) // 2
-        _try_batch(bal, pairs[:mid], out, min_batch=min_batch)
-        _try_batch(bal, pairs[mid:], out, min_batch=min_batch)
+        _try_batch(bal, pairs[:mid], out, max_retry_depth, _depth + 1)
+        _try_batch(bal, pairs[mid:], out, max_retry_depth, _depth + 1)
 
 
 def balance_reactions(
@@ -121,5 +134,5 @@ def balance_reactions(
     if not valid_pairs:
         return out
 
-    _try_batch(bal, valid_pairs, out, min_batch=1)
+    _try_batch(bal, valid_pairs, out, max_retry_depth=1)
     return out

@@ -96,12 +96,22 @@ stages:
     outs:
       - data/interim/augmented/molecules_priced.parquet
 
+  augment_thermo:
+    cmd: uv run aichemy augment thermo --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/augment/thermo.py
+      - data/interim/augmented/reactions_yields.parquet
+      - data/interim/deduped/molecules.parquet
+    outs:
+      - data/interim/augmented/reactions_thermo.parquet
+
   augment_directionality:
     cmd: uv run aichemy augment directionality --config configs/default.yaml
     deps:
       - configs/default.yaml
       - src/aichemy/preprocessing/augment/directionality.py
-      - data/interim/augmented/reactions_yields.parquet
+      - data/interim/augmented/reactions_thermo.parquet
     outs:
       - data/interim/augmented/reactions_full.parquet
 

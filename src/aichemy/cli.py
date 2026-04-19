@@ -12,6 +12,7 @@ from aichemy.preprocessing.augment import prices as prices_module
 from aichemy.preprocessing.augment import (
     prices_scrapers as _prices_scrapers,  # noqa: F401 — side effect: registers scrapers
 )
+from aichemy.preprocessing.augment import thermo as thermo_module
 from aichemy.preprocessing.augment import yields as yields_module
 from aichemy.preprocessing.augment.directionality import DirectionalityMode
 from aichemy.preprocessing.balance import validate as balance_validate_module
@@ -402,6 +403,46 @@ def augment_prices(
     )
 
 
+@augment_app.command("thermo")
+def augment_thermo(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Populate delta_g (ΔG'°) via eQuilibrator on MetaNetX reactions."""
+    cfg = _load(config, override)
+    input_path = interim_path(cfg, "augmented", "reactions_yields.parquet")
+    molecules_path = interim_path(cfg, "deduped", "molecules.parquet")
+    output_path = interim_path(cfg, "augmented", "reactions_thermo.parquet")
+
+    if not input_path.exists():
+        write_empty_reactions(output_path)
+        typer.echo(f"[augment thermo] upstream {input_path} missing; wrote empty parquet.")
+        return
+
+    if not thermo_module.is_available():
+        # Skip gracefully — populate as-is with delta_g left null.
+        import shutil
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(input_path, output_path)
+        typer.echo(
+            "[augment thermo] equilibrator-api not installed; passing through "
+            f"{input_path} unchanged. Install with `uv sync --extra thermo` to enable."
+        )
+        return
+
+    df = read_reactions(input_path)
+    molecules = read_molecules(molecules_path) if molecules_path.exists() else None
+    augmented = thermo_module.augment_thermo(df, molecules=molecules)
+    write_reactions(augmented, output_path)
+    resolved = augmented.filter(pl.col("delta_g").is_not_null()).height
+    typer.echo(
+        f"[augment thermo] wrote {augmented.height} rows "
+        f"({resolved} with computed ΔG'°; the rest couldn't be resolved against "
+        "eQuilibrator's compound catalog)."
+    )
+
+
 @augment_app.command("directionality")
 def augment_directionality(
     config: Path = ConfigOpt,
@@ -409,7 +450,7 @@ def augment_directionality(
 ) -> None:
     """Apply MetaNetX directionality flag (annotate or duplicate reversibles)."""
     cfg = _load(config, override)
-    input_path = interim_path(cfg, "augmented", "reactions_yields.parquet")
+    input_path = interim_path(cfg, "augmented", "reactions_thermo.parquet")
     output_path = interim_path(cfg, "augmented", "reactions_full.parquet")
 
     if not input_path.exists():

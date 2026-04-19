@@ -26,7 +26,8 @@ yields:
   enzymatic_prior_range: [0.85, 0.95]
 
 prices:
-  backend: stub
+  backend: chained
+  chain: [curated, pubchem]
 
 paths:
   data_dir: data

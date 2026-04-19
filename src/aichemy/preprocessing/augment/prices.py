@@ -364,7 +364,11 @@ def make_lookup(config: PreprocessingConfig) -> PriceLookup:
 
     lookups: list[PriceLookup] = []
     for name in cfg.chain:
-        if name == "pubchem":
+        if name == "curated":
+            from aichemy.preprocessing.augment.prices_curated import CuratedPriceLookup
+
+            lookups.append(CuratedPriceLookup())
+        elif name == "pubchem":
             if cfg.pubchem.enabled:
                 lookups.append(
                     PubChemClient(

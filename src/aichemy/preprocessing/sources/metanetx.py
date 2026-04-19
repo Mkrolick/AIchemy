@@ -135,6 +135,10 @@ def ingest_metanetx(fixture_dir: Path) -> tuple[pl.DataFrame, pl.DataFrame]:
         pl.col("balanced_mnx").alias("balanced"),
         pl.lit("metanetx").alias("source"),
         pl.col("ec_class"),
+        # MetaNetX's `reac_prop.tsv` does not carry an explicit direction flag
+        # (unlike mnet-spec). Per proposal: assume forward for MetaNetX rows
+        # and use eQuilibrator ΔG'° later to flag thermodynamically infeasible.
+        pl.lit("forward").alias("direction"),
     )
 
     return molecules, reactions
