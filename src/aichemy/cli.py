@@ -189,10 +189,37 @@ def dedup_reactions(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """Deduplicate reactions; rewrite mol_ids via dedup_map. STUB."""
+    """Dedup reactions: rewrite mol_ids via dedup_map, collapse duplicates."""
+    import json
+
+    from aichemy.preprocessing.dedup import reactions as dedup_rxn_module
+
     cfg = _load(config, override)
-    write_empty_reactions(interim_path(cfg, "deduped", "reactions.parquet"))
-    typer.echo("[STUB] dedup reactions: wrote empty deduped parquet.")
+    reactions_in = interim_path(cfg, "normalized", "reactions.parquet")
+    molecules_in = interim_path(cfg, "deduped", "molecules.parquet")
+    map_in = interim_path(cfg, "deduped", "dedup_map.json")
+    output_path = interim_path(cfg, "deduped", "reactions.parquet")
+
+    if not (reactions_in.exists() and molecules_in.exists()):
+        write_empty_reactions(output_path)
+        typer.echo("[dedup reactions] upstream missing; wrote empty parquet.")
+        return
+
+    reactions = read_reactions(reactions_in)
+    molecules = read_molecules(molecules_in)
+    dedup_map = json.loads(map_in.read_text()) if map_in.exists() else {}
+
+    if reactions.height == 0:
+        write_empty_reactions(output_path)
+        typer.echo("[dedup reactions] input empty; nothing to dedup.")
+        return
+
+    deduped = dedup_rxn_module.dedup_reactions(reactions, molecules, dedup_map)
+    write_reactions(deduped, output_path)
+    typer.echo(
+        f"[dedup reactions] wrote {deduped.height} rows "
+        f"(collapsed {reactions.height - deduped.height})."
+    )
 
 
 @balance_app.command("uspto")

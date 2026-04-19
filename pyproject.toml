@@ -70,6 +70,8 @@ module = [
     "aichemy.preprocessing.chem.identifiers",
     "aichemy.preprocessing.balance.validate",
     "aichemy.preprocessing.normalize",
+    "aichemy.preprocessing.dedup.molecules",
+    "aichemy.preprocessing.dedup.reactions",
 ]
 disallow_untyped_calls = false
 warn_return_any = false
