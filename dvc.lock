@@ -9,8 +9,8 @@ stages:
       size: 358
     - path: src/aichemy/cli.py
       hash: md5
-      md5: 2d9151d55700027e98020c358fcc21ba
-      size: 7635
+      md5: 2e0792e895035d2a502cf47156d18a69
+      size: 10496
     outs:
     - path: data/raw/metanetx
       hash: md5
@@ -202,8 +202,8 @@ stages:
       size: 1386
     - path: src/aichemy/preprocessing/augment/yields.py
       hash: md5
-      md5: d41d8cd98f00b204e9800998ecf8427e
-      size: 0
+      md5: f134500ac91fb842690435faea07a102
+      size: 2405
     outs:
     - path: data/interim/augmented/reactions_yields.parquet
       hash: md5
@@ -242,8 +242,8 @@ stages:
       size: 1386
     - path: src/aichemy/preprocessing/augment/directionality.py
       hash: md5
-      md5: d41d8cd98f00b204e9800998ecf8427e
-      size: 0
+      md5: 3055176a9bdfca6e9a8449c756b0395f
+      size: 1864
     outs:
     - path: data/interim/augmented/reactions_full.parquet
       hash: md5
@@ -264,7 +264,15 @@ stages:
       hash: md5
       md5: 7054fc6142e9287fc595e46a41e3f699
       size: 1386
+    - path: src/aichemy/preprocessing/export.py
+      hash: md5
+      md5: 5a9cd7d8374b9cdbaca5369fb9c4984e
+      size: 2369
     outs:
+    - path: data/processed/hypergraph_manifest.json
+      hash: md5
+      md5: bb1ea2ef843aa79e3b67f05eb87a4b65
+      size: 260
     - path: data/processed/molecules.parquet
       hash: md5
       md5: 55a9ea96efc00867a16a9fb063cd9292

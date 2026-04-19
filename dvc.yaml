@@ -108,8 +108,10 @@ stages:
     cmd: uv run aichemy export --config configs/default.yaml
     deps:
       - configs/default.yaml
+      - src/aichemy/preprocessing/export.py
       - data/interim/augmented/molecules_priced.parquet
       - data/interim/augmented/reactions_full.parquet
     outs:
       - data/processed/reactions.parquet
       - data/processed/molecules.parquet
+      - data/processed/hypergraph_manifest.json
