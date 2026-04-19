@@ -1,17 +1,55 @@
 [project]
 name = "aichemy"
-version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
-authors = [
-    { name = "Malcolm", email = "malcolm.krolick@gmail.com" }
-]
+version = "0.0.1"
+description = "Chemo-enzymatic reaction hypergraph preprocessing and MILP profit optimization."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "polars>=1.0",
+    "rdkit>=2024.3",
+    "pydantic>=2.6",
+    "patito>=0.8",
+    "typer>=0.12",
+    "pyyaml>=6.0",
+    "numpy",
+    "scipy",
+]
+
+[project.optional-dependencies]
+solver = ["gurobipy>=11.0"]
+notebooks = ["jupyter", "pandas", "matplotlib"]
 
 [project.scripts]
-aichemy = "aichemy:main"
+aichemy = "aichemy.cli:app"
 
 [build-system]
-requires = ["uv_build>=0.11.7,<0.12.0"]
-build-backend = "uv_build"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aichemy"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov",
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "pre-commit",
+    "nbstripout",
+    "dvc>=3.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.mypy]
+strict = true
+files = ["src/aichemy"]
