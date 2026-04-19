@@ -9,14 +9,17 @@ from aichemy.preprocessing.augment import prices as prices_module
 from aichemy.preprocessing.augment import (
     prices_scrapers as _prices_scrapers,  # noqa: F401 — side effect: registers scrapers
 )
+from aichemy.preprocessing.balance import validate as balance_validate_module
 from aichemy.preprocessing.io import (
     interim_path,
     processed_path,
     raw_path,
     read_molecules,
+    read_reactions,
     write_empty_molecules,
     write_empty_reactions,
     write_molecules,
+    write_reactions,
 )
 
 app = typer.Typer(help="AIchemy preprocessing pipeline.", no_args_is_help=True)
@@ -125,10 +128,23 @@ def balance_validate(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """Universal atom-count validation; populates balanced: bool. STUB."""
+    """Universal atom-count validation; populates balanced: bool for all reactions."""
     cfg = _load(config, override)
-    write_empty_reactions(interim_path(cfg, "validated", "reactions.parquet"))
-    typer.echo("[STUB] balance validate: wrote empty validated parquet.")
+    input_path = interim_path(cfg, "balanced", "reactions.parquet")
+    output_path = interim_path(cfg, "validated", "reactions.parquet")
+
+    if not input_path.exists():
+        write_empty_reactions(output_path)
+        typer.echo(f"[balance validate] upstream {input_path} missing; wrote empty parquet.")
+        return
+
+    df = read_reactions(input_path)
+    validated = balance_validate_module.validate_reactions(df)
+    write_reactions(validated, output_path)
+    typer.echo(
+        f"[balance validate] wrote {validated.height} rows "
+        f"({validated.filter(validated['balanced']).height} balanced)."
+    )
 
 
 @augment_app.command("yields")
