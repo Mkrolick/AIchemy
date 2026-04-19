@@ -1,0 +1,99 @@
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping
+from enum import Enum
+from pathlib import Path
+from typing import Any, Literal
+
+import yaml
+from pydantic import BaseModel, Field
+
+
+class DedupConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    tanimoto_threshold: float = 1.0
+    reaction_tanimoto_threshold: float = 0.95
+    fingerprint_radius: int = 2
+    fingerprint_bits: int = 2048
+
+
+class FilterConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    min_carbon_count: int = 2
+
+
+class YieldImputationStrategy(str, Enum):
+    GLOBAL_MEAN = "global_mean"
+    PER_EC_CLASS = "per_ec_class"
+    FIXED = "fixed"
+
+
+class YieldConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    strategy: YieldImputationStrategy = YieldImputationStrategy.GLOBAL_MEAN
+    fixed_value: float = 0.85
+    enzymatic_prior_range: tuple[float, float] = (0.85, 0.95)
+
+
+class SourcesConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    metanetx_version: str = "4.4"
+    uspto_slice: Literal["grants_1976_2016", "full"] = "grants_1976_2016"
+
+
+class PricesConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    backend: Literal["chemprize", "stub"] = "stub"
+
+
+class PathsConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    data_dir: Path = Field(default_factory=lambda: Path("data"))
+
+
+class PreprocessingConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    sources: SourcesConfig = Field(default_factory=SourcesConfig)
+    filter: FilterConfig = Field(default_factory=FilterConfig)
+    dedup: DedupConfig = Field(default_factory=DedupConfig)
+    yields: YieldConfig = Field(default_factory=YieldConfig)
+    prices: PricesConfig = Field(default_factory=PricesConfig)
+    paths: PathsConfig = Field(default_factory=PathsConfig)
+
+
+def _deep_merge(base: dict[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:
+    """Deep-merge override into base.
+
+    Dict-valued keys: recursively merged.
+    All other types (scalars, lists, tuples): replaced wholesale.
+    Returns a new dict; does not mutate inputs.
+    """
+    out = dict(base)
+    for key, override_val in override.items():
+        base_val = out.get(key)
+        if isinstance(base_val, dict) and isinstance(override_val, Mapping):
+            out[key] = _deep_merge(base_val, override_val)
+        else:
+            out[key] = override_val
+    return out
+
+
+def load_config(
+    path: Path,
+    overrides: Iterable[Path] = (),
+) -> PreprocessingConfig:
+    """Load base YAML, deep-merge each override in order, validate via Pydantic."""
+    with open(path) as f:
+        merged: dict[str, Any] = yaml.safe_load(f) or {}
+    for override_path in overrides:
+        with open(override_path) as f:
+            override: dict[str, Any] = yaml.safe_load(f) or {}
+        merged = _deep_merge(merged, override)
+    return PreprocessingConfig.model_validate(merged)
