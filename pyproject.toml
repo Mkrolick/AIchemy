@@ -53,6 +53,9 @@ target-version = "py311"
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 ignore = ["RUF002", "RUF003"]  # Unicode in docstrings / comments (ℝ, −, etc.) is intentional for math
 
+[tool.ruff.lint.per-file-ignores]
+"src/aichemy/preprocessing/augment/prices_curated.py" = ["E501"]  # long SMILES strings
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers -m 'not slow'"
@@ -65,7 +68,7 @@ strict = true
 files = ["src/aichemy"]
 
 [[tool.mypy.overrides]]
-module = ["rdkit.*", "patito.*", "yaml", "synrbl", "synrbl.*", "pulp", "pulp.*", "py7zr", "equilibrator_api", "equilibrator_api.*"]
+module = ["rdkit.*", "patito.*", "yaml", "synrbl", "synrbl.*", "pulp", "pulp.*", "py7zr", "equilibrator_api", "equilibrator_api.*", "joblib"]
 ignore_missing_imports = true
 follow_imports = "skip"
 

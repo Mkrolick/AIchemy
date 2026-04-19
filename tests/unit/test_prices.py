@@ -204,7 +204,7 @@ def test_scraper_respects_robots_txt_disallow(
 
 def test_make_lookup_stub_backend() -> None:
     cfg = PreprocessingConfig()
-    assert cfg.prices.backend == "stub"
+    cfg.prices.backend = "stub"
     lookup = make_lookup(cfg)
     assert isinstance(lookup, StubPriceLookup)
 

@@ -98,8 +98,8 @@ class ScraperConfig(BaseModel):
 class PricesConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
-    backend: Literal["stub", "chained"] = "stub"
-    chain: list[str] = Field(default_factory=lambda: ["pubchem"])
+    backend: Literal["stub", "chained"] = "chained"
+    chain: list[str] = Field(default_factory=lambda: ["curated", "pubchem"])
     cache_path: Path = Field(default_factory=lambda: Path("data/interim/prices_cache.sqlite"))
     cache_ttl_days: int = 30
     pubchem: PubChemConfig = Field(default_factory=PubChemConfig)
