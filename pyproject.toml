@@ -13,6 +13,7 @@ dependencies = [
     "numpy",
     "scipy",
     "httpx>=0.28.1",
+    "py7zr>=1.1.0",
 ]
 
 [project.optional-dependencies]
@@ -74,6 +75,7 @@ module = [
     "aichemy.preprocessing.normalize",
     "aichemy.preprocessing.dedup.molecules",
     "aichemy.preprocessing.dedup.reactions",
+    "aichemy.preprocessing.sources.uspto",
 ]
 disallow_untyped_calls = false
 warn_return_any = false
