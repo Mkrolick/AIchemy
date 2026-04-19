@@ -35,6 +35,10 @@ def test_defaults() -> None:
     assert cfg.sources.metanetx_version == "4.4"
     assert cfg.sources.uspto_slice == "grants_1976_2016"
     assert cfg.prices.backend == "stub"
+    assert cfg.prices.chain == ["pubchem"]
+    assert cfg.prices.cache_ttl_days == 30
+    assert cfg.prices.pubchem.enabled is True
+    assert cfg.prices.scraper.enabled is False
     assert cfg.paths.data_dir == Path("data")
 
 
