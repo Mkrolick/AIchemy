@@ -44,6 +44,9 @@ def filter_reactions_by_carbon(
     min_carbon: int = 2,
 ) -> pl.DataFrame:
     """Drop reactions where any reactant or product has < min_carbon carbons."""
+    if reactions.height == 0:
+        return reactions
+
     carbon_by_mol: dict[str, int] = dict(
         zip(
             molecules["mol_id"].to_list(),
@@ -61,4 +64,4 @@ def filter_reactions_by_carbon(
         return True
 
     mask = [_passes(row) for row in reactions.iter_rows(named=True)]
-    return reactions.filter(pl.Series("_keep", mask))
+    return reactions.filter(pl.Series("_keep", mask, dtype=pl.Boolean))
