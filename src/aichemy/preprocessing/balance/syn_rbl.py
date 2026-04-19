@@ -49,6 +49,35 @@ def _normalize_for_synrbl(rxn: str) -> str | None:
     return None
 
 
+def _try_batch(
+    bal: object,
+    pairs: list[tuple[int, str]],
+    out: list[str | None],
+    min_batch: int = 1,
+) -> None:
+    """Try SYN-RBL on `pairs`; on crash, binary-subdivide recursively.
+
+    Successful results land in ``out[i]``. If a batch of size N crashes,
+    we recurse into two halves — limits the blast radius of a single bad
+    input to log2(chunk_size) retries instead of N per-reaction calls.
+    """
+    if not pairs:
+        return
+    try:
+        results = bal.rebalance([r for _, r in pairs])
+        for (i, _), result in zip(pairs, results, strict=True):
+            if isinstance(result, str) and result:
+                out[i] = result
+        return
+    except Exception as exc:
+        if len(pairs) <= min_batch:
+            log.debug("SYN-RBL gave up on %d reaction(s): %s", len(pairs), type(exc).__name__)
+            return
+        mid = len(pairs) // 2
+        _try_batch(bal, pairs[:mid], out, min_batch=min_batch)
+        _try_batch(bal, pairs[mid:], out, min_batch=min_batch)
+
+
 def balance_reactions(
     reaction_smiles: Iterable[str],
     n_jobs: int = 1,
@@ -57,8 +86,8 @@ def balance_reactions(
 
     Returns None for entries that SYN-RBL could not process or balance.
     Handles USPTO's 3-part ``reactants>agents>products`` by dropping agents.
-    Falls back to per-reaction invocation if bulk call crashes on a single
-    malformed entry.
+    On batch failure, binary-subdivides so a single bad input costs only
+    ``log2(chunk_size)`` retries, not ``N`` per-reaction calls.
     """
     Balancer = _import_balancer()
     bal = Balancer(n_jobs=n_jobs)
@@ -66,7 +95,6 @@ def balance_reactions(
     if not rxns:
         return []
 
-    # Normalize every reaction to `>>` form; track which ones survived.
     normalized: list[str | None] = [_normalize_for_synrbl(r) for r in rxns]
     valid_pairs = [(i, r) for i, r in enumerate(normalized) if r is not None]
 
@@ -74,20 +102,5 @@ def balance_reactions(
     if not valid_pairs:
         return out
 
-    try:
-        batch_results = bal.rebalance([r for _, r in valid_pairs])
-        for (i, _original), result in zip(valid_pairs, batch_results, strict=True):
-            if isinstance(result, str) and result:
-                out[i] = result
-    except Exception as exc:
-        log.warning("SYN-RBL bulk call failed (%s); retrying per-reaction.", type(exc).__name__)
-        # Per-reaction fallback so a single malformed input doesn't kill the batch.
-        for i, r in valid_pairs:
-            try:
-                single = bal.rebalance([r])
-                if single and isinstance(single[0], str) and single[0]:
-                    out[i] = single[0]
-            except Exception as inner:
-                log.debug("SYN-RBL skip on %s: %s", r[:60], inner)
-
+    _try_batch(bal, valid_pairs, out, min_batch=1)
     return out
