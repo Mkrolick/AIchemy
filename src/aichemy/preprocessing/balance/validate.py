@@ -71,16 +71,48 @@ def is_balanced(
 
 def validate_reactions(
     df: pl.DataFrame,
+    molecules: pl.DataFrame | None = None,
     ignore_elements: Sequence[str] = (),
 ) -> pl.DataFrame:
     """Populate a `balanced: bool` column on a reactions DataFrame.
 
-    Expects `reactants` and `products` columns, each a list of structs
-    with `smiles` and `coefficient` fields. Returns a new DataFrame with
-    the `balanced` column added or overwritten.
+    Reactions carry ``reactants``/``products`` as lists of structs keyed
+    either directly by ``smiles`` (the format used in the standalone
+    test suite) or by ``mol_id`` (the format used by the full pipeline).
+    When the ``mol_id`` form is used, pass the ``molecules`` DataFrame
+    so mol_ids can be resolved to canonical SMILES for atom counting.
     """
-    balanced_vals = [
-        is_balanced(row["reactants"], row["products"], ignore_elements=ignore_elements)
-        for row in df.iter_rows(named=True)
-    ]
+    smiles_by_mol: dict[str, str | None] = {}
+    if molecules is not None and "mol_id" in molecules.columns:
+        smiles_by_mol = dict(
+            zip(
+                molecules["mol_id"].to_list(),
+                molecules["canonical_smiles"].to_list(),
+                strict=True,
+            )
+        )
+
+    def _resolve(side: list[dict]) -> list[dict]:
+        resolved: list[dict] = []
+        for s in side:
+            if "smiles" in s:
+                resolved.append({"smiles": s["smiles"], "coefficient": s["coefficient"]})
+            else:
+                mol_id = s["mol_id"]
+                smi = smiles_by_mol.get(mol_id)
+                if smi:
+                    resolved.append({"smiles": smi, "coefficient": s["coefficient"]})
+        return resolved
+
+    balanced_vals: list[bool] = []
+    for row in df.iter_rows(named=True):
+        reactants = _resolve(row["reactants"])
+        products = _resolve(row["products"])
+        # If any participant couldn't be resolved to a SMILES, we can't
+        # compute balance accurately — mark unbalanced.
+        if len(reactants) != len(row["reactants"]) or len(products) != len(row["products"]):
+            balanced_vals.append(False)
+        else:
+            balanced_vals.append(is_balanced(reactants, products, ignore_elements=ignore_elements))
+
     return df.with_columns(pl.Series("balanced", balanced_vals, dtype=pl.Boolean))
