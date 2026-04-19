@@ -5,6 +5,7 @@ from pathlib import Path
 import typer
 
 from aichemy.config import PreprocessingConfig, load_config
+from aichemy.preprocessing import export as export_module
 from aichemy.preprocessing.augment import directionality as directionality_module
 from aichemy.preprocessing.augment import prices as prices_module
 from aichemy.preprocessing.augment import (
@@ -227,11 +228,50 @@ def export(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """Write final unified hypergraph parquets to data/processed/. STUB."""
+    """Write final unified hypergraph parquets + manifest.json to data/processed/."""
     cfg = _load(config, override)
-    write_empty_reactions(processed_path(cfg, "reactions.parquet"))
-    write_empty_molecules(processed_path(cfg, "molecules.parquet"))
-    typer.echo("[STUB] export: wrote empty processed parquets.")
+    reactions_in = interim_path(cfg, "augmented", "reactions_full.parquet")
+    molecules_in = interim_path(cfg, "augmented", "molecules_priced.parquet")
+    reactions_out = processed_path(cfg, "reactions.parquet")
+    molecules_out = processed_path(cfg, "molecules.parquet")
+    manifest_out = processed_path(cfg, "hypergraph_manifest.json")
+
+    if not (reactions_in.exists() and molecules_in.exists()):
+        # Upstream missing — stay stub-compatible for a clean dvc repro on
+        # a bare pipeline, but still emit the manifest so downstream tooling
+        # always has a summary to read.
+        write_empty_reactions(reactions_out)
+        write_empty_molecules(molecules_out)
+        export_module.write_manifest(
+            read_reactions(reactions_out),
+            read_molecules(molecules_out),
+            metanetx_version=cfg.sources.metanetx_version,
+            uspto_slice=cfg.sources.uspto_slice,
+            output_path=manifest_out,
+        )
+        typer.echo(f"[export] upstream missing; wrote empty parquets + manifest to {manifest_out}.")
+        return
+
+    reactions = read_reactions(reactions_in)
+    molecules = read_molecules(molecules_in)
+
+    # Only enforce referential integrity when there is something to check.
+    if reactions.height > 0:
+        export_module.assert_referential_integrity(reactions, molecules)
+
+    write_reactions(reactions, reactions_out)
+    write_molecules(molecules, molecules_out)
+    export_module.write_manifest(
+        reactions,
+        molecules,
+        metanetx_version=cfg.sources.metanetx_version,
+        uspto_slice=cfg.sources.uspto_slice,
+        output_path=manifest_out,
+    )
+    typer.echo(
+        f"[export] wrote {reactions.height} reactions, {molecules.height} molecules, "
+        f"manifest -> {manifest_out}."
+    )
 
 
 if __name__ == "__main__":
