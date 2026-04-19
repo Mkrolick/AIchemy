@@ -12,6 +12,7 @@ Pipeline:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
@@ -162,10 +163,8 @@ def _iter_offer_prices(node: Any):
             currency = node.get("priceCurrency") or "USD"
             desc = node.get("description") or node.get("name") or ""
             if price is not None and str(currency).upper() == "USD":
-                try:
+                with contextlib.suppress(TypeError, ValueError):
                     yield float(price), str(desc)
-                except (TypeError, ValueError):
-                    pass
         for v in node.values():
             yield from _iter_offer_prices(v)
     elif isinstance(node, list):
