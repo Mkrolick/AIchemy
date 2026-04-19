@@ -130,7 +130,7 @@ Two core tables flow through the pipeline, written as Polars-compatible parquet 
 - `reactants: list[struct{mol_id: str, coefficient: float}]`
 - `products: list[struct{mol_id: str, coefficient: float}]`
 - `type: enum{enzymatic, chemical}`
-- `yield: float`
+- `yield_rate: float` — named `yield_rate` rather than `yield` because `yield` is a Python keyword; renaming avoids field-alias machinery in patito
 - `delta_g: float | None` — nullable; non-null only for enzymatic where relevant
 - `balanced: bool` — populated by `balance/validate.py` for all reactions (MetaNetX + USPTO), not only successfully SYN-RBL'd USPTO rows
 - `source: enum{metanetx, uspto}`
