@@ -9,8 +9,8 @@ stages:
       size: 358
     - path: src/aichemy/cli.py
       hash: md5
-      md5: 8cf7fd2ad4252c1968f8e7946092912a
-      size: 10496
+      md5: dbe22f202318f15d55ebcb9cdf277103
+      size: 14631
     outs:
     - path: data/raw/metanetx
       hash: md5
@@ -36,8 +36,8 @@ stages:
       nfiles: 0
     - path: src/aichemy/preprocessing/sources/metanetx.py
       hash: md5
-      md5: d41d8cd98f00b204e9800998ecf8427e
-      size: 0
+      md5: 07c30b5149ccab7a33e7f723b512b3a8
+      size: 4233
     outs:
     - path: data/interim/metanetx/molecules_raw.parquet
       hash: md5
@@ -89,13 +89,13 @@ stages:
       size: 1386
     - path: src/aichemy/preprocessing/chem
       hash: md5
-      md5: ec86770cef2d642e375e3b2ef280072c.dir
-      size: 3073
+      md5: 611639e583984b0919e1c6e887b3ed31.dir
+      size: 3043
       nfiles: 5
     - path: src/aichemy/preprocessing/normalize.py
       hash: md5
-      md5: d41d8cd98f00b204e9800998ecf8427e
-      size: 0
+      md5: 80d2f6715392f83138eb32a0e7460506
+      size: 2285
     outs:
     - path: data/interim/normalized/molecules.parquet
       hash: md5
@@ -118,9 +118,13 @@ stages:
       size: 835
     - path: src/aichemy/preprocessing/dedup/molecules.py
       hash: md5
-      md5: d41d8cd98f00b204e9800998ecf8427e
-      size: 0
+      md5: cf6611d4c354bf97c8ecd8dfbe976ad8
+      size: 2865
     outs:
+    - path: data/interim/deduped/dedup_map.json
+      hash: md5
+      md5: 8a80554c91d9fca8acb82f023de02f11
+      size: 3
     - path: data/interim/deduped/molecules.parquet
       hash: md5
       md5: 55a9ea96efc00867a16a9fb063cd9292
@@ -142,8 +146,8 @@ stages:
       size: 1386
     - path: src/aichemy/preprocessing/dedup/reactions.py
       hash: md5
-      md5: d41d8cd98f00b204e9800998ecf8427e
-      size: 0
+      md5: c3a7b6fa23c119f4e52859e56d6e0edf
+      size: 3406
     outs:
     - path: data/interim/deduped/reactions.parquet
       hash: md5
