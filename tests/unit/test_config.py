@@ -117,3 +117,28 @@ def test_invalid_key_raises(tmp_path: Path) -> None:
     override = _write(tmp_path, "o.yaml", "dedup:\n  nonexistent_key: 42\n")
     with pytest.raises(ValidationError):
         load_config(base, [override])
+
+
+def test_default_yaml_parses() -> None:
+    """configs/default.yaml should load and produce exactly the Pydantic defaults."""
+    repo_root = Path(__file__).resolve().parents[2]
+    default_path = repo_root / "configs" / "default.yaml"
+    cfg = load_config(default_path)
+    expected = PreprocessingConfig()
+    assert cfg == expected
+
+
+def test_strict_dedup_profile_applies() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    default_path = repo_root / "configs" / "default.yaml"
+    profile_path = repo_root / "configs" / "profiles" / "strict_dedup.yaml"
+    cfg = load_config(default_path, [profile_path])
+    assert cfg.dedup.reaction_tanimoto_threshold == 1.0  # stricter than 0.95 default
+
+
+def test_mean_yields_profile_applies() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    default_path = repo_root / "configs" / "default.yaml"
+    profile_path = repo_root / "configs" / "profiles" / "mean_yields.yaml"
+    cfg = load_config(default_path, [profile_path])
+    assert cfg.yields.strategy == YieldImputationStrategy.PER_EC_CLASS

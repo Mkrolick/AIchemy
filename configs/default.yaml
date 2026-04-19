@@ -1,0 +1,23 @@
+sources:
+  metanetx_version: "4.4"
+  uspto_slice: grants_1976_2016
+
+filter:
+  min_carbon_count: 2
+
+dedup:
+  tanimoto_threshold: 1.0
+  reaction_tanimoto_threshold: 0.95
+  fingerprint_radius: 2
+  fingerprint_bits: 2048
+
+yields:
+  strategy: global_mean
+  fixed_value: 0.85
+  enzymatic_prior_range: [0.85, 0.95]
+
+prices:
+  backend: stub
+
+paths:
+  data_dir: data
