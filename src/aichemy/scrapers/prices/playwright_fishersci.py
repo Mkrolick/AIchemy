@@ -130,20 +130,26 @@ class PlaywrightFisherScraper:
 
 
 def _extract_fisher_price_per_gram(html: str) -> float | None:
-    # Fisher's product pages have pack size + USD price in proximity.
-    # Find all $ prices then look for pack sizes within 200 chars.
-    price_matches = list(re.finditer(r"\$\s*([\d,]+(?:\.\d{2})?)", html))
+    # Pass 1: require the $price AND pack size in the SAME line to reduce
+    # false positives (the $ in a page footer / i18n label is far from any
+    # pack size). Only require a decimal on the price ($0.XX form) to avoid
+    # matching things like "$0" in script templates.
     per_gram_prices: list[float] = []
-    for pm in price_matches:
+    for line in html.split("\n"):
+        # Skip short lines and lines that look like template labels.
+        if len(line) < 10 or ("Price" in line and ":" in line and '"' in line):
+            continue
+        pm = re.search(r"\$\s*([\d,]+\.\d{2})\b", line)
+        if not pm:
+            continue
         try:
             price = float(pm.group(1).replace(",", ""))
         except ValueError:
             continue
-        # Scan neighborhood for pack size
-        start = max(0, pm.start() - 400)
-        end = min(len(html), pm.end() + 400)
-        nbhd = html[start:end]
-        size_match = _PACK.search(nbhd)
+        # Price must be plausible ($0.50 - $10,000 per product)
+        if not (0.5 <= price <= 10_000):
+            continue
+        size_match = _PACK.search(line)
         if not size_match:
             continue
         try:
@@ -157,7 +163,8 @@ def _extract_fisher_price_per_gram(html: str) -> float | None:
         if grams <= 0:
             continue
         pg = price / grams
-        if 0.0001 < pg < 100_000:
+        # Per-gram must be plausible ($0.01 - $10k per gram).
+        if 0.01 < pg < 10_000:
             per_gram_prices.append(pg)
 
     if not per_gram_prices:
