@@ -1,4 +1,5 @@
 import pytest
+
 from aichemy.preprocessing.chem.smiles import canonicalize, is_valid, parse
 
 
