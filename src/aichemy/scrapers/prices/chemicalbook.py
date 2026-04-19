@@ -168,10 +168,11 @@ class ChemicalBookScraper(PriceScraperBase):
             if grams <= 0:
                 continue
             per_gram = price / grams
-            # Clip absurd values (likely parsing errors: matches like "$0"
-            # or unit confusion). Real chemicals cost ≥$0.01/g except for
-            # ultra-commodity like NaCl; those aren't our use case.
-            if 0.01 < per_gram < 100_000:
+            # Clip absurd values. Commodity bulk (ethanol, methanol) can
+            # legitimately be <$0.001/g when sold by the ton, so the floor
+            # has to be very low. $0 matches (from e.g. "Min. Order: $0")
+            # are excluded by requiring strictly > 0.
+            if 0.0 < per_gram < 100_000:
                 per_gram_prices.append(per_gram)
 
         if not per_gram_prices:
