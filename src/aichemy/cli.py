@@ -9,6 +9,7 @@ from aichemy.preprocessing.augment import prices as prices_module
 from aichemy.preprocessing.augment import (
     prices_scrapers as _prices_scrapers,  # noqa: F401 — side effect: registers scrapers
 )
+from aichemy.preprocessing.augment import yields as yields_module
 from aichemy.preprocessing.balance import validate as balance_validate_module
 from aichemy.preprocessing.io import (
     interim_path,
@@ -152,10 +153,20 @@ def augment_yields(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """Fill missing yields per configured strategy. STUB."""
+    """Fill missing yield_rate per configured strategy."""
     cfg = _load(config, override)
-    write_empty_reactions(interim_path(cfg, "augmented", "reactions_yields.parquet"))
-    typer.echo("[STUB] augment yields: wrote empty parquet.")
+    input_path = interim_path(cfg, "validated", "reactions.parquet")
+    output_path = interim_path(cfg, "augmented", "reactions_yields.parquet")
+
+    if not input_path.exists():
+        write_empty_reactions(output_path)
+        typer.echo(f"[augment yields] upstream {input_path} missing; wrote empty parquet.")
+        return
+
+    df = read_reactions(input_path)
+    augmented = yields_module.augment_yields(df, cfg.yields)
+    write_reactions(augmented, output_path)
+    typer.echo(f"[augment yields] wrote {augmented.height} rows (strategy={cfg.yields.strategy}).")
 
 
 @augment_app.command("prices")
