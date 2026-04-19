@@ -1,13 +1,14 @@
 """Sigma-Aldrich (sigmaaldrich.com) price scraper.
 
-Sigma's search backend is GraphQL-based. The query used here is the same one
-the public search UI hits when a user enters a search term. No auth required,
-though Sigma may rate-limit / Cloudflare-challenge aggressive patterns.
+Sigma's GraphQL endpoint requires access tokens. The simpler public path
+is the HTML search URL `https://www.sigmaaldrich.com/US/en/search/<CAS>`
+which 302-redirects to the first matching product page. Product pages
+embed pricing in JSON-LD `<script type="application/ld+json">` blocks.
 
 Pipeline:
-1. POST the GraphQL search query with the SMILES as the search term.
-2. Pull the first product hit (productNumber + pricing tiers).
-3. Compute per-gram USD from the cheapest tier.
+1. Resolve SMILES → CAS number via PubChem.
+2. GET Sigma's search URL (auto-redirects to product page).
+3. Parse JSON-LD Offer objects for (price, pack-size) → per-gram USD.
 """
 
 from __future__ import annotations
@@ -18,14 +19,15 @@ import logging
 import re
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import quote
 
 from aichemy.scrapers.prices.base import PriceQuote, PriceScraperBase
+from aichemy.scrapers.prices.pubchem import PubChemResolver
 from aichemy.scrapers.prices.registry import register_scraper
 
 log = logging.getLogger(__name__)
 
-SEARCH_GQL_URL = "https://www.sigmaaldrich.com/api"
-PRODUCT_URL_TMPL = "https://www.sigmaaldrich.com/US/en/product/sial/{product_number}"
+SEARCH_URL_TMPL = "https://www.sigmaaldrich.com/US/en/search/{query}?focus=products"
 
 # Unit parsing for pricing tiers (same normalization as ChemicalBook).
 _PACK = re.compile(
@@ -45,78 +47,52 @@ _UNIT_TO_GRAMS = {
     "µl": 1e-3,
 }
 
-SEARCH_QUERY = """
-query ProductSearch($searchTerm: String!, $page: Int!, $perPage: Int!) {
-  getProductSearchResults(
-    input: {searchTerm: $searchTerm, page: $page, perPage: $perPage}
-  ) {
-    items {
-      productNumber
-      productName
-      brand { key name }
-    }
-  }
-}
-"""
-
 
 class SigmaAldrichScraper(PriceScraperBase):
     vendor_name = "sigma_aldrich"
 
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._pubchem = PubChemResolver()
+
+    def close(self) -> None:
+        super().close()
+        self._pubchem.close()
+
     def _fetch_quote(self, smiles: str) -> PriceQuote | None:
-        payload = {
-            "operationName": "ProductSearch",
-            "query": SEARCH_QUERY,
-            "variables": {"searchTerm": smiles, "page": 1, "perPage": 5},
-        }
-        headers = {
-            "Content-Type": "application/json",
-            "X-GQL-Access-Token": "",  # Some Sigma endpoints want this; empty often OK.
-            "Accept": "application/json",
-        }
-        try:
-            resp = self._client.post(
-                SEARCH_GQL_URL,
-                json=payload,
-                headers=headers,
+        # Sigma search is indexed by CAS, product name, and catalog number —
+        # NOT by SMILES. Resolve via PubChem first.
+        ids = self._pubchem.resolve(smiles)
+        if ids is None:
+            return None
+
+        # Try CAS numbers first, fall back to IUPAC/common name.
+        queries: list[str] = list(ids.cas)
+        if ids.iupac_name:
+            queries.append(ids.iupac_name)
+        for syn in ids.synonyms[:3]:
+            if syn not in queries:
+                queries.append(syn)
+
+        for query in queries:
+            search_url = SEARCH_URL_TMPL.format(query=quote(query, safe=""))
+            resp = self._get(search_url)
+            if resp is None or resp.status_code != 200:
+                continue
+            # Redirect target may be the product page directly, or a results
+            # page with a single top hit. Look for JSON-LD on the landing page.
+            price_per_gram = _extract_sigma_price_per_gram(resp.text)
+            if price_per_gram is None:
+                continue
+            return PriceQuote(
+                smiles=smiles,
+                price_per_gram_usd=price_per_gram,
+                vendor=self.vendor_name,
+                source_url=str(resp.url),
+                fetched_at=datetime.now(UTC),
+                extra={"query": query, "pubchem_cid": str(ids.cid)},
             )
-        except Exception as exc:
-            log.debug("sigma_aldrich: search POST failed: %s", exc)
-            return None
-        if resp.status_code != 200:
-            log.debug("sigma_aldrich: search returned %d", resp.status_code)
-            return None
-
-        try:
-            data = resp.json()
-            items = data["data"]["getProductSearchResults"]["items"]
-        except (KeyError, json.JSONDecodeError, TypeError):
-            return None
-        if not items:
-            return None
-
-        product_number = items[0].get("productNumber")
-        if not product_number:
-            return None
-
-        # Fetch the product page, which embeds pricing tiers in JSON-LD.
-        product_url = PRODUCT_URL_TMPL.format(product_number=product_number)
-        page = self._get(product_url)
-        if page is None or page.status_code != 200:
-            return None
-
-        price_per_gram = _extract_sigma_price_per_gram(page.text)
-        if price_per_gram is None:
-            return None
-
-        return PriceQuote(
-            smiles=smiles,
-            price_per_gram_usd=price_per_gram,
-            vendor=self.vendor_name,
-            source_url=product_url,
-            fetched_at=datetime.now(UTC),
-            extra={"product_number": product_number},
-        )
+        return None
 
 
 def _extract_sigma_price_per_gram(html: str) -> float | None:
@@ -138,7 +114,7 @@ def _extract_sigma_price_per_gram(html: str) -> float | None:
             if grams is None or grams <= 0:
                 continue
             per_gram = price / grams
-            if 0.0001 < per_gram < 100_000:
+            if 0.01 < per_gram < 100_000:
                 per_gram_prices.append(per_gram)
 
     if not per_gram_prices:
