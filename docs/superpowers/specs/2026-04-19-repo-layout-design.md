@@ -8,7 +8,7 @@
 
 AIchemy answers the question: *"Given material market prices, what should I make to maximize profit margins using chemo-enzymatic reactions?"* It formulates chemical synthesis planning as a profit-maximization MILP over a hypergraph of chemicals (nodes) and reactions (edges). The preprocessing pipeline prepares this hypergraph by merging two open-source reaction databases (MetaNetX for enzymatic, USPTO for chemical) and deriving the parameters the solver consumes (stoichiometry, yield, price, ΔG').
 
-This spec covers repo layout and tooling only; the pipeline's scientific content and the MILP formulation are covered in `gdocs_proposal.md`.
+This spec covers repo layout and tooling only; the pipeline's scientific content and the MILP formulation are covered in `proposal.md` and the `research_reports/` literature review.
 
 ## Decisions
 
@@ -63,7 +63,9 @@ AIchemy-fresh/
 ├── .gitignore
 ├── .dvcignore
 ├── README.md
-└── gdocs_proposal.md               # existing proposal, retained
+├── proposal.md                     # existing proposal, retained
+├── research_reports/               # existing literature review, retained
+└── AIchemy.md                      # existing analysis, retained
 ```
 
 ### Package structure: `src/aichemy/preprocessing/`

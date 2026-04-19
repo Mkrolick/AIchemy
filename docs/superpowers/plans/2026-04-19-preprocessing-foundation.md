@@ -90,7 +90,7 @@
 uv init --package --name aichemy --python 3.11 .
 ```
 
-Expected output: creates `pyproject.toml`, `.python-version`, `README.md`, `src/aichemy/__init__.py`, `.gitignore`. Does not overwrite existing files (`gdocs_proposal.md`, `todo.md`, `.gitattributes` remain untouched).
+Expected output: creates `pyproject.toml`, `.python-version`, `src/aichemy/__init__.py`, `.gitignore`. Does not overwrite existing files (`proposal.md`, `proposal.tex`, `AIchemy.md`, `.gitattributes`, `research_reports/` etc. remain untouched). Note: if `README.md` already exists from origin, uv init will skip it; otherwise it creates a placeholder we replace in Task 21.
 
 - [ ] **Step 2: Verify files exist**
 
@@ -2250,7 +2250,7 @@ Replace `README.md` with:
 
 Profit-maximizing chemo-enzymatic reaction pathway selection via MILP over a unified hypergraph of MetaNetX (enzymatic) and USPTO (chemical) reactions.
 
-See `gdocs_proposal.md` for the scientific motivation and MILP formulation. See `docs/superpowers/specs/` for engineering design docs.
+See `proposal.md` and `research_reports/` for the scientific motivation and literature review. See `docs/superpowers/specs/` for engineering design docs.
 
 ## Status
 
@@ -2346,7 +2346,8 @@ Override semantics: dict-valued keys deep-merge; scalars and lists are **replace
 
 ## Documentation
 
-- `gdocs_proposal.md` — scientific proposal (MILP formulation, database choices, solver approach)
+- `proposal.md` — scientific proposal (MILP formulation, database choices, solver approach)
+- `research_reports/` — literature review (SPARROW, ASKCOS, minChemBio, etc.)
 - `docs/superpowers/specs/2026-04-19-repo-layout-design.md` — this repo's design spec
 - `docs/superpowers/plans/2026-04-19-preprocessing-foundation.md` — implementation plan (this scaffolding)
 ````
