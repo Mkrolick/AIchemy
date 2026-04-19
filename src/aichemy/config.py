@@ -45,10 +45,45 @@ class SourcesConfig(BaseModel):
     uspto_slice: Literal["grants_1976_2016", "full"] = "grants_1976_2016"
 
 
+class PubChemConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    enabled: bool = True
+    rate_limit_seconds: float = 0.25  # PubChem allows ~5 req/s
+    timeout_seconds: float = 10.0
+
+
+class ScraperVendorConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    name: str  # identifier (e.g. "chemicalbook", "benchchem")
+    enabled: bool = False
+    rate_limit_seconds: float = 5.0
+
+
+class ScraperConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    enabled: bool = False  # master switch — scraping is off unless explicitly enabled
+    vendors: list[ScraperVendorConfig] = Field(default_factory=list)
+    user_agent: str = (
+        "AIchemy-research/0.1 (https://github.com/mkrolick/AIchemy; malcolm.krolick@gmail.com)"
+    )
+    respect_robots_txt: bool = True
+    cache_path: Path = Field(default_factory=lambda: Path("data/interim/scraper_cache.sqlite"))
+    max_retries: int = 3
+    backoff_base_seconds: float = 2.0
+
+
 class PricesConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
-    backend: Literal["chemprize", "stub"] = "stub"
+    backend: Literal["stub", "chained"] = "stub"
+    chain: list[str] = Field(default_factory=lambda: ["pubchem"])
+    cache_path: Path = Field(default_factory=lambda: Path("data/interim/prices_cache.sqlite"))
+    cache_ttl_days: int = 30
+    pubchem: PubChemConfig = Field(default_factory=PubChemConfig)
+    scraper: ScraperConfig = Field(default_factory=ScraperConfig)
 
 
 class PathsConfig(BaseModel):

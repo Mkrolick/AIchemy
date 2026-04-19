@@ -9,8 +9,8 @@ stages:
       size: 358
     - path: src/aichemy/cli.py
       hash: md5
-      md5: ac014e82e0ac77814d0c6a1c69fbc96d
-      size: 6114
+      md5: fa33dfd3b44383b4f233929c336e8dbd
+      size: 7013
     outs:
     - path: data/raw/metanetx
       hash: md5
@@ -222,8 +222,8 @@ stages:
       size: 835
     - path: src/aichemy/preprocessing/augment/prices.py
       hash: md5
-      md5: 353ab7c24e4473c2ac2283a62214f9e4
-      size: 469
+      md5: 816d41d5d39a85b4781bcd583bdc7b4c
+      size: 15322
     outs:
     - path: data/interim/augmented/molecules_priced.parquet
       hash: md5

@@ -5,12 +5,18 @@ from pathlib import Path
 import typer
 
 from aichemy.config import PreprocessingConfig, load_config
+from aichemy.preprocessing.augment import prices as prices_module
+from aichemy.preprocessing.augment import (
+    prices_scrapers as _prices_scrapers,  # noqa: F401 — side effect: registers scrapers
+)
 from aichemy.preprocessing.io import (
     interim_path,
     processed_path,
     raw_path,
+    read_molecules,
     write_empty_molecules,
     write_empty_reactions,
+    write_molecules,
 )
 
 app = typer.Typer(help="AIchemy preprocessing pipeline.", no_args_is_help=True)
@@ -141,10 +147,26 @@ def augment_prices(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """Populate price_per_gram via configured backend. STUB."""
+    """Populate price_per_gram via configured PriceLookup backend."""
     cfg = _load(config, override)
-    write_empty_molecules(interim_path(cfg, "augmented", "molecules_priced.parquet"))
-    typer.echo("[STUB] augment prices: wrote empty parquet.")
+    input_path = interim_path(cfg, "deduped", "molecules.parquet")
+    output_path = interim_path(cfg, "augmented", "molecules_priced.parquet")
+
+    if not input_path.exists():
+        # Upstream stage hasn't produced input yet — keep behavior stub-compatible
+        # so dvc repro on the bare pipeline stays green.
+        write_empty_molecules(output_path)
+        typer.echo(f"[augment prices] upstream {input_path} missing; wrote empty parquet.")
+        return
+
+    lookup = prices_module.make_lookup(cfg)
+    molecules = read_molecules(input_path)
+    priced = prices_module.augment_prices(molecules, lookup)
+    write_molecules(priced, output_path)
+    typer.echo(
+        f"[augment prices] wrote {priced.height} rows to {output_path} "
+        f"(backend={cfg.prices.backend})."
+    )
 
 
 @augment_app.command("directionality")
