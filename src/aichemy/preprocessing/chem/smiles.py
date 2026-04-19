@@ -4,8 +4,10 @@ from rdkit import Chem
 from rdkit.Chem.rdchem import Mol
 
 
-def parse(smiles: str) -> Mol | None:
-    """Parse a SMILES string to an RDKit Mol. Returns None if invalid."""
+def parse(smiles: str | None) -> Mol | None:
+    """Parse a SMILES string to an RDKit Mol. Returns None if invalid or None."""
+    if not smiles:
+        return None
     return Chem.MolFromSmiles(smiles)
 
 

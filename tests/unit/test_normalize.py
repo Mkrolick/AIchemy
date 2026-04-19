@@ -50,23 +50,38 @@ def test_canonicalize_molecules_adds_carbon_count() -> None:
 def test_filter_reactions_by_carbon_drops_sub_threshold() -> None:
     molecules = pl.DataFrame(
         {
-            "mol_id": ["CARBON2", "WATER", "ETHANOL"],
-            "carbon_count": [2, 0, 2],
+            "mol_id": ["ETHANOL", "WATER", "ETHANAL", "PROTON"],
+            "carbon_count": [2, 0, 2, 0],
         }
     )
     reactions = pl.DataFrame(
         {
-            "rxn_id": ["r1", "r2"],
+            "rxn_id": ["r1", "r2", "r3"],
             "reactants": [
+                # r1: ethanol + NAD+ → ethanal + NADH (C on both sides) — keep
                 [{"mol_id": "ETHANOL", "coefficient": 1.0}],
-                [{"mol_id": "WATER", "coefficient": 1.0}],
+                # r2: ethanol + water → ethanal (still keep: C on both sides)
+                [
+                    {"mol_id": "ETHANOL", "coefficient": 1.0},
+                    {"mol_id": "WATER", "coefficient": 1.0},
+                ],
+                # r3: proton + water shuffle → water (no carbons anywhere — drop)
+                [
+                    {"mol_id": "PROTON", "coefficient": 1.0},
+                    {"mol_id": "WATER", "coefficient": 1.0},
+                ],
             ],
             "products": [
-                [{"mol_id": "CARBON2", "coefficient": 1.0}],
-                [{"mol_id": "ETHANOL", "coefficient": 1.0}],
+                [{"mol_id": "ETHANAL", "coefficient": 1.0}],
+                [
+                    {"mol_id": "ETHANAL", "coefficient": 1.0},
+                    {"mol_id": "PROTON", "coefficient": 1.0},
+                ],
+                [{"mol_id": "WATER", "coefficient": 1.0}],
             ],
         }
     )
     filtered = filter_reactions_by_carbon(reactions, molecules, min_carbon=2)
-    # r1 passes (all participants have ≥2 carbons); r2 fails (water reactant)
-    assert filtered["rxn_id"].to_list() == ["r1"]
+    # r1 and r2 both have ≥1 high-carbon participant on each side → keep.
+    # r3 has no carbon anywhere → drop.
+    assert filtered["rxn_id"].to_list() == ["r1", "r2"]

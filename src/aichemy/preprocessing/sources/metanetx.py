@@ -24,6 +24,9 @@ import polars as pl
 
 _EQUATION_SPLIT = re.compile(r"\s*=\s*")
 _COEFF_SMI_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s+(\S+)")
+# MetaNetX tags molecule references with a compartment suffix (e.g. `MNXM1@MNXD1`)
+# — strip that for molecule-identity matching.
+_COMPARTMENT_SUFFIX = re.compile(r"@MNXD\d+$")
 
 
 def parse_chem_prop(path: Path) -> pl.DataFrame:
@@ -32,7 +35,9 @@ def parse_chem_prop(path: Path) -> pl.DataFrame:
         path,
         separator="\t",
         has_header=False,
+        comment_prefix="#",
         truncate_ragged_lines=True,
+        quote_char=None,
         new_columns=[
             "mnx_id",
             "name",
@@ -45,8 +50,6 @@ def parse_chem_prop(path: Path) -> pl.DataFrame:
             "smiles",
         ],
     )
-    # Drop any row that's a comment (starts with '#')
-    df = df.filter(~pl.col("mnx_id").str.starts_with("#"))
     return df
 
 
@@ -61,7 +64,13 @@ def parse_equation(
 
     def _parse_side(side: str) -> list[dict[str, Any]]:
         tokens = _COEFF_SMI_PATTERN.findall(side)
-        return [{"mol_id": mol_id, "coefficient": float(coeff)} for coeff, mol_id in tokens]
+        return [
+            {
+                "mol_id": _COMPARTMENT_SUFFIX.sub("", mol_id),
+                "coefficient": float(coeff),
+            }
+            for coeff, mol_id in tokens
+        ]
 
     return _parse_side(lhs), _parse_side(rhs)
 
@@ -72,7 +81,9 @@ def parse_reac_prop(path: Path) -> pl.DataFrame:
         path,
         separator="\t",
         has_header=False,
+        comment_prefix="#",
         truncate_ragged_lines=True,
+        quote_char=None,
         new_columns=[
             "mnx_rxn_id",
             "equation",
@@ -82,8 +93,6 @@ def parse_reac_prop(path: Path) -> pl.DataFrame:
             "is_transport",
         ],
     )
-    df = df.filter(~pl.col("mnx_rxn_id").str.starts_with("#"))
-
     parsed_eqs = [parse_equation(eq) for eq in df["equation"].to_list()]
     reactants = [r for r, _ in parsed_eqs]
     products = [p for _, p in parsed_eqs]

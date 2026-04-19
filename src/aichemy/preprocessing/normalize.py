@@ -55,13 +55,19 @@ def filter_reactions_by_carbon(
         )
     )
 
+    def _side_has_carbon(side: list) -> bool:
+        for stoich in side:
+            c = carbon_by_mol.get(stoich["mol_id"], 0)
+            if c is not None and c >= min_carbon:
+                return True
+        return False
+
     def _passes(row: dict) -> bool:
-        for side_name in ("reactants", "products"):
-            for stoich in row[side_name]:
-                c = carbon_by_mol.get(stoich["mol_id"], 0)
-                if c is None or c < min_carbon:
-                    return False
-        return True
+        # Keep reactions that have at least one "synthesis-relevant" (≥2-C)
+        # participant on each side. Drops reactions that are purely small-
+        # molecule shuffles (H+, H2O, etc.) while preserving legitimate
+        # enzymatic reactions that happen to involve water as co-substrate.
+        return _side_has_carbon(row["reactants"]) and _side_has_carbon(row["products"])
 
     mask = [_passes(row) for row in reactions.iter_rows(named=True)]
     return reactions.filter(pl.Series("_keep", mask, dtype=pl.Boolean))

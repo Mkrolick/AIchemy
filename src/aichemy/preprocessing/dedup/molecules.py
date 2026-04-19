@@ -37,16 +37,25 @@ def dedup_molecules(df: pl.DataFrame) -> tuple[pl.DataFrame, dict[str, str]]:
     dedup_map: dict[str, str] = {}
     canonical_rows: list[dict[str, object]] = []
 
-    for inchi_key, group_df in df.group_by("inchi_key"):
+    for inchi_key_tuple, group_df in df.group_by("inchi_key"):
+        inchi_key = inchi_key_tuple[0]  # Polars group_by returns (key,) tuples
         group = group_df.to_dicts()
+
+        # Rows with NULL InChIKey can't be grouped meaningfully — emit each
+        # as its own canonical entry (they're presumed distinct).
+        if inchi_key is None:
+            for row in group:
+                dedup_map[row["mol_id"]] = row["mol_id"]
+                canonical_rows.append(row)
+            continue
+
         mol_ids = [row["mol_id"] for row in group]
         canonical = _pick_canonical_mol_id(mol_ids)
 
         for mid in mol_ids:
             dedup_map[mid] = canonical
 
-        # Consistency check: all SMILES in a group should match (canonicalized).
-        smiles_set = {row["canonical_smiles"] for row in group}
+        smiles_set = {row["canonical_smiles"] for row in group if row["canonical_smiles"]}
         if len(smiles_set) > 1:
             log.warning(
                 "Molecules with matching InChIKey %r have divergent canonical SMILES: %s",
@@ -54,9 +63,10 @@ def dedup_molecules(df: pl.DataFrame) -> tuple[pl.DataFrame, dict[str, str]]:
                 sorted(smiles_set),
             )
 
-        # Union all source_refs across the group.
-        all_refs = sorted({ref for row in group for ref in row["source_refs"]})
-        # Pick the first row's data (all should be equivalent post-canonicalization).
+        # Union all source_refs across the group, skipping None-valued lists.
+        all_refs = sorted(
+            {ref for row in group for ref in (row["source_refs"] or []) if ref is not None}
+        )
         template = next(row for row in group if row["mol_id"] == canonical)
         canonical_rows.append(
             {

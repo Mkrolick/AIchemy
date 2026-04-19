@@ -313,7 +313,13 @@ def balance_validate(
         return
 
     df = read_reactions(input_path)
-    validated = balance_validate_module.validate_reactions(df)
+    mol_path = interim_path(cfg, "deduped", "molecules.parquet")
+    molecules = read_molecules(mol_path) if mol_path.exists() else None
+    # MetaNetX frequently elides protons — tell the validator to ignore H
+    # imbalance so those reactions aren't all flagged as unbalanced.
+    validated = balance_validate_module.validate_reactions(
+        df, molecules=molecules, ignore_elements=["H"]
+    )
     write_reactions(validated, output_path)
     typer.echo(
         f"[balance validate] wrote {validated.height} rows "
