@@ -52,7 +52,7 @@ def filter_reactions_by_carbon(
         )
     )
 
-    def _passes(row: dict[str, object]) -> bool:
+    def _passes(row: dict) -> bool:
         for side_name in ("reactants", "products"):
             for stoich in row[side_name]:
                 c = carbon_by_mol.get(stoich["mol_id"], 0)
