@@ -48,6 +48,7 @@ stages:
       - data/interim/normalized/molecules.parquet
     outs:
       - data/interim/deduped/molecules.parquet
+      - data/interim/deduped/dedup_map.json
 
   dedup_reactions:
     cmd: uv run aichemy dedup reactions --config configs/default.yaml
