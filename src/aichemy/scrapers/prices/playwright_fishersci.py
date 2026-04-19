@@ -9,10 +9,12 @@ from __future__ import annotations
 import logging
 import re
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import quote
 
-from aichemy.scrapers.prices.base import PriceQuote
+from aichemy.scrapers.prices.base import PriceQuote, PriceScraperBase
 from aichemy.scrapers.prices.pubchem import PubChemResolver
+from aichemy.scrapers.prices.registry import register_scraper
 
 log = logging.getLogger(__name__)
 
@@ -176,3 +178,34 @@ def _extract_fisher_price_per_gram(html: str) -> float | None:
         if n % 2 == 1
         else (per_gram_prices[n // 2 - 1] + per_gram_prices[n // 2]) / 2.0
     )
+
+
+class FisherScientificScraper(PriceScraperBase):
+    """PriceScraperBase-compliant wrapper around PlaywrightFisherScraper.
+
+    Registered as ``fisher_scientific`` so the pipeline and smoke-test
+    treat it like any other vendor even though the heavy lifting runs
+    in a headless Chromium.
+    """
+
+    vendor_name = "fisher_scientific"
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._inner = PlaywrightFisherScraper(user_agent=self._user_agent)
+
+    def close(self) -> None:
+        try:
+            self._inner.close()
+        finally:
+            super().close()
+
+    def _fetch_quote(self, smiles: str) -> PriceQuote | None:
+        return self._inner.scrape(smiles)
+
+
+def _factory(**kwargs: Any) -> FisherScientificScraper:
+    return FisherScientificScraper(**kwargs)
+
+
+register_scraper("fisher_scientific", _factory)
