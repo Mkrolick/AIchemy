@@ -119,10 +119,31 @@ def ingest_uspto(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """Parse USPTO reaction SMILES to interim parquet. STUB: empty parquet."""
+    """Parse USPTO Lowe .rsmi into interim parquet (extracts 7z if needed)."""
+    from aichemy.preprocessing.sources import uspto as uspto_module
+
     cfg = _load(config, override)
-    write_empty_reactions(interim_path(cfg, "uspto", "reactions_raw.parquet"))
-    typer.echo("[STUB] ingest uspto: wrote empty interim parquet.")
+    raw_dir = raw_path(cfg, "uspto")
+    rxn_out = interim_path(cfg, "uspto", "reactions_raw.parquet")
+
+    rsmi_path = raw_dir / "1976_Sep2016_USPTOgrants_smiles.rsmi"
+    archive_path = raw_dir / "grants_smiles.7z"
+
+    if not rsmi_path.exists() and archive_path.exists():
+        import py7zr
+
+        with py7zr.SevenZipFile(archive_path) as z:
+            z.extractall(raw_dir)
+        typer.echo(f"[ingest uspto] extracted {archive_path} → {raw_dir}")
+
+    if not rsmi_path.exists():
+        write_empty_reactions(rxn_out)
+        typer.echo(f"[ingest uspto] raw .rsmi missing at {rsmi_path}; wrote empty parquet.")
+        return
+
+    reactions = uspto_module.ingest_uspto(rsmi_path)
+    write_reactions(reactions, rxn_out)
+    typer.echo(f"[ingest uspto] wrote {reactions.height} reactions from {rsmi_path.name}.")
 
 
 @app.command("normalize")

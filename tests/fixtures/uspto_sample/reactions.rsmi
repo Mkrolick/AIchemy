@@ -1,0 +1,5 @@
+ReactionSmiles	PatentNumber	ParagraphNum	Year	TextMinedYield	CalculatedYield
+CCO.O>>CC=O.O	US0001	[0001]	1976	0.85	0.85
+CC(=O)OCC>>CC(=O)O.CCO	US0002	[0002]	1980	0.92	0.91
+[Br:1][CH2:2][CH2:3][OH:4].[CH2:5]([S:7](Cl)(=[O:9])=[O:8])[CH3:6]>C(N(CC)CC)C>[CH2:5]([S:7]([O:4][CH2:3][CH2:2][Br:1])(=[O:9])=[O:8])[CH3:6]	US0003	[0003]	1976		0.75
+CC(=O)C>C>CC(O)C	US0004	[0004]	1990	0.78
