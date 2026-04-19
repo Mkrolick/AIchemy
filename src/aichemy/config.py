@@ -38,11 +38,31 @@ class YieldConfig(BaseModel):
     enzymatic_prior_range: tuple[float, float] = (0.85, 0.95)
 
 
+class MetaNetXURLsConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    reac_prop: str = "https://www.metanetx.org/ftp/4.4/reac_prop.tsv"
+    chem_prop: str = "https://www.metanetx.org/ftp/4.4/chem_prop.tsv"
+    reac_xref: str = "https://www.metanetx.org/ftp/4.4/reac_xref.tsv"
+    chem_xref: str = "https://www.metanetx.org/ftp/4.4/chem_xref.tsv"
+
+
+class USPTOURLsConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    # Lowe 1976-Sep2016 grants reaction SMILES (75MB 7z from figshare).
+    grants_smiles: str = "https://ndownloader.figshare.com/files/8664379"
+    # Lowe 2001-Sep2016 applications reaction SMILES (87MB 7z).
+    applications_smiles: str = "https://ndownloader.figshare.com/files/8664370"
+
+
 class SourcesConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
     metanetx_version: str = "4.4"
     uspto_slice: Literal["grants_1976_2016", "full"] = "grants_1976_2016"
+    metanetx_urls: MetaNetXURLsConfig = Field(default_factory=MetaNetXURLsConfig)
+    uspto_urls: USPTOURLsConfig = Field(default_factory=USPTOURLsConfig)
 
 
 class PubChemConfig(BaseModel):
