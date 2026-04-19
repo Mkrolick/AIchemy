@@ -1,4 +1,5 @@
 import pytest
+
 from aichemy.preprocessing.chem.identifiers import inchi_key
 
 

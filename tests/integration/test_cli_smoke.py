@@ -1,8 +1,9 @@
 from pathlib import Path
 
 import pytest
-from aichemy.cli import app
 from typer.testing import CliRunner
+
+from aichemy.cli import app
 
 runner = CliRunner()
 
