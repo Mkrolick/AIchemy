@@ -118,17 +118,35 @@ class ChemicalBookScraper(PriceScraperBase):
 
     @staticmethod
     def _extract_first_product_link(html: str) -> str | None:
-        """Best-effort: pick the first absolute-ish URL that looks like a product page."""
-        # ChemicalBook product links look like:
-        #   /ProductChemicalProperties_CB1234567.aspx
-        #   /ChemicalProductProperty_EN_CB1234567.htm
-        m = re.search(
-            r'href="(/[A-Za-z_]*(?:ChemicalProductProperty|ProductChemicalProperties)[^"]*)"',
-            html,
+        """Pick a product link INSIDE the search-results section, not sidebar.
+
+        ChemicalBook's layout puts sidebar "popular products" (a perpetual
+        ethanol link in particular) before search results. Prefer links
+        that appear after a search-results heading.
+        """
+        all_matches = list(
+            re.finditer(
+                r'href="(/[A-Za-z_]*(?:ChemicalProductProperty|ProductChemicalProperties)[^"]*)"',
+                html,
+            )
         )
-        if not m:
+        if not all_matches:
             return None
-        return urljoin(BASE_URL, m.group(1))
+
+        heading_idx = max(
+            html.find("Search Results"),
+            html.find("Product Information"),
+            html.find("ProductList"),
+            html.find('id="ContentPlaceHolder1"'),
+        )
+        if heading_idx >= 0:
+            for m in all_matches:
+                if m.start() > heading_idx:
+                    return urljoin(BASE_URL, m.group(1))
+
+        # Fallback: skip the first 2 matches (presumed sidebar) if we have ≥3.
+        pick = all_matches[min(2, len(all_matches) - 1)]
+        return urljoin(BASE_URL, pick.group(1))
 
     @staticmethod
     def _extract_price_per_gram(html: str) -> float | None:
@@ -150,8 +168,10 @@ class ChemicalBookScraper(PriceScraperBase):
             if grams <= 0:
                 continue
             per_gram = price / grams
-            # Clip absurd values (likely parsing errors)
-            if 0.0001 < per_gram < 100_000:
+            # Clip absurd values (likely parsing errors: matches like "$0"
+            # or unit confusion). Real chemicals cost ≥$0.01/g except for
+            # ultra-commodity like NaCl; those aren't our use case.
+            if 0.01 < per_gram < 100_000:
                 per_gram_prices.append(per_gram)
 
         if not per_gram_prices:
