@@ -89,8 +89,8 @@ stages:
       size: 1386
     - path: src/aichemy/preprocessing/chem
       hash: md5
-      md5: 4c41f29c747b342b72ac63ff18d187ff.dir
-      size: 2993
+      md5: ec86770cef2d642e375e3b2ef280072c.dir
+      size: 3073
       nfiles: 5
     - path: src/aichemy/preprocessing/normalize.py
       hash: md5
