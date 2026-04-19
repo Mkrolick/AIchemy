@@ -9,8 +9,8 @@ stages:
       size: 358
     - path: src/aichemy/cli.py
       hash: md5
-      md5: fa33dfd3b44383b4f233929c336e8dbd
-      size: 7013
+      md5: 2d9151d55700027e98020c358fcc21ba
+      size: 7635
     outs:
     - path: data/raw/metanetx
       hash: md5
@@ -182,8 +182,8 @@ stages:
       size: 1386
     - path: src/aichemy/preprocessing/balance/validate.py
       hash: md5
-      md5: d41d8cd98f00b204e9800998ecf8427e
-      size: 0
+      md5: edb74944b6f4989dd91877e8e5e0b25e
+      size: 2906
     outs:
     - path: data/interim/validated/reactions.parquet
       hash: md5

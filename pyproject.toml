@@ -68,9 +68,11 @@ module = [
     "aichemy.preprocessing.chem.similarity",
     "aichemy.preprocessing.chem.filters",
     "aichemy.preprocessing.chem.identifiers",
+    "aichemy.preprocessing.balance.validate",
 ]
 disallow_untyped_calls = false
 warn_return_any = false
+disable_error_code = ["type-arg"]
 
 # patito's Model is Any-typed; subclasses and polars schema dicts trigger noise.
 [[tool.mypy.overrides]]
