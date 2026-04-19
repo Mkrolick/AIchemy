@@ -149,10 +149,39 @@ def dedup_molecules(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """Deduplicate molecules (InChIKey primary, Tanimoto secondary). STUB."""
+    """Deduplicate molecules (InChIKey primary). Emits dedup_map.json sidecar."""
+    import json
+
+    from aichemy.preprocessing.dedup import molecules as dedup_mol_module
+
     cfg = _load(config, override)
-    write_empty_molecules(interim_path(cfg, "deduped", "molecules.parquet"))
-    typer.echo("[STUB] dedup molecules: wrote empty deduped parquet.")
+    input_path = interim_path(cfg, "normalized", "molecules.parquet")
+    output_path = interim_path(cfg, "deduped", "molecules.parquet")
+    map_path = interim_path(cfg, "deduped", "dedup_map.json")
+
+    if not input_path.exists():
+        write_empty_molecules(output_path)
+        map_path.parent.mkdir(parents=True, exist_ok=True)
+        map_path.write_text("{}\n")
+        typer.echo(f"[dedup molecules] upstream {input_path} missing; wrote empty parquet.")
+        return
+
+    df = read_molecules(input_path)
+    if df.height == 0:
+        write_empty_molecules(output_path)
+        map_path.parent.mkdir(parents=True, exist_ok=True)
+        map_path.write_text("{}\n")
+        typer.echo("[dedup molecules] input empty; nothing to dedup.")
+        return
+
+    deduped, dedup_map = dedup_mol_module.dedup_molecules(df)
+    write_molecules(deduped, output_path)
+    map_path.parent.mkdir(parents=True, exist_ok=True)
+    map_path.write_text(json.dumps(dedup_map, indent=2, sort_keys=True) + "\n")
+    typer.echo(
+        f"[dedup molecules] wrote {deduped.height} rows "
+        f"(collapsed {df.height - deduped.height}); dedup_map.json sidecar written."
+    )
 
 
 @dedup_app.command("reactions")
