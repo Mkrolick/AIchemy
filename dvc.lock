@@ -1,0 +1,275 @@
+schema: '2.0'
+stages:
+  fetch_raw:
+    cmd: uv run aichemy fetch-raw --config configs/default.yaml
+    deps:
+    - path: configs/default.yaml
+      hash: md5
+      md5: a61073fe388097782d898a67fb458bde
+      size: 358
+    - path: src/aichemy/cli.py
+      hash: md5
+      md5: ac014e82e0ac77814d0c6a1c69fbc96d
+      size: 6114
+    outs:
+    - path: data/raw/metanetx
+      hash: md5
+      md5: d751713988987e9331980363e24189ce.dir
+      size: 0
+      nfiles: 0
+    - path: data/raw/uspto
+      hash: md5
+      md5: d751713988987e9331980363e24189ce.dir
+      size: 0
+      nfiles: 0
+  ingest_metanetx:
+    cmd: uv run aichemy ingest metanetx --config configs/default.yaml
+    deps:
+    - path: configs/default.yaml
+      hash: md5
+      md5: a61073fe388097782d898a67fb458bde
+      size: 358
+    - path: data/raw/metanetx
+      hash: md5
+      md5: d751713988987e9331980363e24189ce.dir
+      size: 0
+      nfiles: 0
+    - path: src/aichemy/preprocessing/sources/metanetx.py
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+    outs:
+    - path: data/interim/metanetx/molecules_raw.parquet
+      hash: md5
+      md5: 55a9ea96efc00867a16a9fb063cd9292
+      size: 835
+    - path: data/interim/metanetx/reactions_raw.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+  ingest_uspto:
+    cmd: uv run aichemy ingest uspto --config configs/default.yaml
+    deps:
+    - path: configs/default.yaml
+      hash: md5
+      md5: a61073fe388097782d898a67fb458bde
+      size: 358
+    - path: data/raw/uspto
+      hash: md5
+      md5: d751713988987e9331980363e24189ce.dir
+      size: 0
+      nfiles: 0
+    - path: src/aichemy/preprocessing/sources/uspto.py
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+    outs:
+    - path: data/interim/uspto/reactions_raw.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+  normalize:
+    cmd: uv run aichemy normalize --config configs/default.yaml
+    deps:
+    - path: configs/default.yaml
+      hash: md5
+      md5: a61073fe388097782d898a67fb458bde
+      size: 358
+    - path: data/interim/metanetx/molecules_raw.parquet
+      hash: md5
+      md5: 55a9ea96efc00867a16a9fb063cd9292
+      size: 835
+    - path: data/interim/metanetx/reactions_raw.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+    - path: data/interim/uspto/reactions_raw.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+    - path: src/aichemy/preprocessing/chem
+      hash: md5
+      md5: 4c41f29c747b342b72ac63ff18d187ff.dir
+      size: 2993
+      nfiles: 5
+    - path: src/aichemy/preprocessing/normalize.py
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+    outs:
+    - path: data/interim/normalized/molecules.parquet
+      hash: md5
+      md5: 55a9ea96efc00867a16a9fb063cd9292
+      size: 835
+    - path: data/interim/normalized/reactions.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+  dedup_molecules:
+    cmd: uv run aichemy dedup molecules --config configs/default.yaml
+    deps:
+    - path: configs/default.yaml
+      hash: md5
+      md5: a61073fe388097782d898a67fb458bde
+      size: 358
+    - path: data/interim/normalized/molecules.parquet
+      hash: md5
+      md5: 55a9ea96efc00867a16a9fb063cd9292
+      size: 835
+    - path: src/aichemy/preprocessing/dedup/molecules.py
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+    outs:
+    - path: data/interim/deduped/molecules.parquet
+      hash: md5
+      md5: 55a9ea96efc00867a16a9fb063cd9292
+      size: 835
+  dedup_reactions:
+    cmd: uv run aichemy dedup reactions --config configs/default.yaml
+    deps:
+    - path: configs/default.yaml
+      hash: md5
+      md5: a61073fe388097782d898a67fb458bde
+      size: 358
+    - path: data/interim/deduped/molecules.parquet
+      hash: md5
+      md5: 55a9ea96efc00867a16a9fb063cd9292
+      size: 835
+    - path: data/interim/normalized/reactions.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+    - path: src/aichemy/preprocessing/dedup/reactions.py
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+    outs:
+    - path: data/interim/deduped/reactions.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+  balance_uspto:
+    cmd: uv run aichemy balance uspto --config configs/default.yaml
+    deps:
+    - path: configs/default.yaml
+      hash: md5
+      md5: a61073fe388097782d898a67fb458bde
+      size: 358
+    - path: data/interim/deduped/reactions.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+    - path: src/aichemy/preprocessing/balance/syn_rbl.py
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+    outs:
+    - path: data/interim/balanced/reactions.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+  balance_validate:
+    cmd: uv run aichemy balance validate --config configs/default.yaml
+    deps:
+    - path: configs/default.yaml
+      hash: md5
+      md5: a61073fe388097782d898a67fb458bde
+      size: 358
+    - path: data/interim/balanced/reactions.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+    - path: src/aichemy/preprocessing/balance/validate.py
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+    outs:
+    - path: data/interim/validated/reactions.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+  augment_yields:
+    cmd: uv run aichemy augment yields --config configs/default.yaml
+    deps:
+    - path: configs/default.yaml
+      hash: md5
+      md5: a61073fe388097782d898a67fb458bde
+      size: 358
+    - path: data/interim/validated/reactions.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+    - path: src/aichemy/preprocessing/augment/yields.py
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+    outs:
+    - path: data/interim/augmented/reactions_yields.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+  augment_prices:
+    cmd: uv run aichemy augment prices --config configs/default.yaml
+    deps:
+    - path: configs/default.yaml
+      hash: md5
+      md5: a61073fe388097782d898a67fb458bde
+      size: 358
+    - path: data/interim/deduped/molecules.parquet
+      hash: md5
+      md5: 55a9ea96efc00867a16a9fb063cd9292
+      size: 835
+    - path: src/aichemy/preprocessing/augment/prices.py
+      hash: md5
+      md5: 353ab7c24e4473c2ac2283a62214f9e4
+      size: 469
+    outs:
+    - path: data/interim/augmented/molecules_priced.parquet
+      hash: md5
+      md5: 55a9ea96efc00867a16a9fb063cd9292
+      size: 835
+  augment_directionality:
+    cmd: uv run aichemy augment directionality --config configs/default.yaml
+    deps:
+    - path: configs/default.yaml
+      hash: md5
+      md5: a61073fe388097782d898a67fb458bde
+      size: 358
+    - path: data/interim/augmented/reactions_yields.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+    - path: src/aichemy/preprocessing/augment/directionality.py
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+    outs:
+    - path: data/interim/augmented/reactions_full.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+  export:
+    cmd: uv run aichemy export --config configs/default.yaml
+    deps:
+    - path: configs/default.yaml
+      hash: md5
+      md5: a61073fe388097782d898a67fb458bde
+      size: 358
+    - path: data/interim/augmented/molecules_priced.parquet
+      hash: md5
+      md5: 55a9ea96efc00867a16a9fb063cd9292
+      size: 835
+    - path: data/interim/augmented/reactions_full.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386
+    outs:
+    - path: data/processed/molecules.parquet
+      hash: md5
+      md5: 55a9ea96efc00867a16a9fb063cd9292
+      size: 835
+    - path: data/processed/reactions.parquet
+      hash: md5
+      md5: 7054fc6142e9287fc595e46a41e3f699
+      size: 1386

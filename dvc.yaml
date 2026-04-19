@@ -1,0 +1,115 @@
+stages:
+  fetch_raw:
+    cmd: uv run aichemy fetch-raw --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/cli.py
+    outs:
+      - data/raw/metanetx
+      - data/raw/uspto
+
+  ingest_metanetx:
+    cmd: uv run aichemy ingest metanetx --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/sources/metanetx.py
+      - data/raw/metanetx
+    outs:
+      - data/interim/metanetx/reactions_raw.parquet
+      - data/interim/metanetx/molecules_raw.parquet
+
+  ingest_uspto:
+    cmd: uv run aichemy ingest uspto --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/sources/uspto.py
+      - data/raw/uspto
+    outs:
+      - data/interim/uspto/reactions_raw.parquet
+
+  normalize:
+    cmd: uv run aichemy normalize --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/normalize.py
+      - src/aichemy/preprocessing/chem
+      - data/interim/metanetx/reactions_raw.parquet
+      - data/interim/metanetx/molecules_raw.parquet
+      - data/interim/uspto/reactions_raw.parquet
+    outs:
+      - data/interim/normalized/reactions.parquet
+      - data/interim/normalized/molecules.parquet
+
+  dedup_molecules:
+    cmd: uv run aichemy dedup molecules --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/dedup/molecules.py
+      - data/interim/normalized/molecules.parquet
+    outs:
+      - data/interim/deduped/molecules.parquet
+
+  dedup_reactions:
+    cmd: uv run aichemy dedup reactions --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/dedup/reactions.py
+      - data/interim/normalized/reactions.parquet
+      - data/interim/deduped/molecules.parquet
+    outs:
+      - data/interim/deduped/reactions.parquet
+
+  balance_uspto:
+    cmd: uv run aichemy balance uspto --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/balance/syn_rbl.py
+      - data/interim/deduped/reactions.parquet
+    outs:
+      - data/interim/balanced/reactions.parquet
+
+  balance_validate:
+    cmd: uv run aichemy balance validate --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/balance/validate.py
+      - data/interim/balanced/reactions.parquet
+    outs:
+      - data/interim/validated/reactions.parquet
+
+  augment_yields:
+    cmd: uv run aichemy augment yields --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/augment/yields.py
+      - data/interim/validated/reactions.parquet
+    outs:
+      - data/interim/augmented/reactions_yields.parquet
+
+  augment_prices:
+    cmd: uv run aichemy augment prices --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/augment/prices.py
+      - data/interim/deduped/molecules.parquet
+    outs:
+      - data/interim/augmented/molecules_priced.parquet
+
+  augment_directionality:
+    cmd: uv run aichemy augment directionality --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/augment/directionality.py
+      - data/interim/augmented/reactions_yields.parquet
+    outs:
+      - data/interim/augmented/reactions_full.parquet
+
+  export:
+    cmd: uv run aichemy export --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - data/interim/augmented/molecules_priced.parquet
+      - data/interim/augmented/reactions_full.parquet
+    outs:
+      - data/processed/reactions.parquet
+      - data/processed/molecules.parquet
