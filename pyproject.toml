@@ -88,6 +88,7 @@ module = [
     "aichemy.preprocessing.augment.thermo",
     "aichemy.solver.model",
     "aichemy.solver.cli",
+    "aichemy.preprocessing.augment.prices_curated",
 ]
 disallow_untyped_calls = false
 warn_return_any = false
