@@ -1,0 +1,10 @@
+# DVC shouldn't hash these as inputs
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+tests/
+notebooks/
+docs/
