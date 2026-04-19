@@ -73,18 +73,26 @@ class PlaywrightFisherScraper:
             q = quote(query, safe="")
             search_url = f"https://www.fishersci.com/us/en/catalog/search/products?keyword={q}"
             try:
-                self._page.goto(search_url, timeout=30000, wait_until="load")
+                # Use 'domcontentloaded' instead of 'load'/'networkidle' — faster;
+                # search results are in the initial HTML.
+                self._page.goto(search_url, timeout=15000, wait_until="domcontentloaded")
             except Exception as exc:
                 log.debug("fisher: search goto failed: %s", exc)
                 continue
 
             # Find product hrefs on search results
-            hrefs = self._page.locator('a[href*="/shop/products/"]').all()
+            try:
+                hrefs = self._page.locator('a[href*="/shop/products/"]').all()
+            except Exception:
+                hrefs = []
             if not hrefs:
                 continue
             product_url = None
             for h in hrefs[:5]:
-                href = h.get_attribute("href")
+                try:
+                    href = h.get_attribute("href", timeout=2000)
+                except Exception:
+                    continue
                 if href:
                     product_url = (
                         "https://www.fishersci.com" + href if href.startswith("/") else href
@@ -94,16 +102,16 @@ class PlaywrightFisherScraper:
                 continue
 
             try:
-                self._page.goto(product_url, timeout=30000, wait_until="networkidle")
+                self._page.goto(product_url, timeout=20000, wait_until="domcontentloaded")
             except Exception as exc:
                 log.debug("fisher: product goto failed: %s", exc)
                 continue
 
-            # Wait briefly for prices to render
+            # Brief wait for prices to appear in JS-rendered product page
             import contextlib
 
             with contextlib.suppress(Exception):
-                self._page.wait_for_selector("text=/\\$\\s*\\d/", timeout=10000)
+                self._page.wait_for_selector("text=/\\$\\s*\\d/", timeout=5000)
 
             html = self._page.content()
             price_per_gram = _extract_fisher_price_per_gram(html)

@@ -49,25 +49,46 @@ def main() -> int:
     mols = pl.read_parquet(args.processed_dir / "molecules.parquet")
     rxns_path = args.processed_dir / "reactions.parquet"
 
+    # Build mol_id -> canonical_smiles lookup.
+    id_to_smi: dict[str, str] = {
+        row["mol_id"]: row["canonical_smiles"]
+        for row in mols.iter_rows(named=True)
+        if row.get("canonical_smiles")
+    }
+
     # Prioritize SMILES that appear in balanced reactions.
-    priority: set[str] = set()
+    priority_smiles: set[str] = set()
     if rxns_path.exists():
         rxns = pl.read_parquet(rxns_path)
         if "balanced" in rxns.columns:
             rxns = rxns.filter(pl.col("balanced"))
         for row in rxns.iter_rows(named=True):
             for s in row.get("reactants", []) + row.get("products", []):
-                if s.get("mol_id"):
-                    priority.add(s["mol_id"])
+                mid = s.get("mol_id")
+                if mid and mid in id_to_smi:
+                    priority_smiles.add(id_to_smi[mid])
 
-    smiles_list = mols.get_column("canonical_smiles").drop_nulls().to_list()
-    prioritized = sorted(set(smiles_list), key=lambda s: (s not in priority, s))
+    # Pre-filter: drop SMILES with <5 heavy atoms (single atoms, salts) or
+    # no C/N/O (inorganic) — Fisher Sci doesn't catalog those.
+    def _is_drug_like(smi: str) -> bool:
+        if not smi or len(smi) < 5:
+            return False
+        if not any(c in smi for c in "CNOPScnops"):
+            return False
+        # Count atom-like characters as rough proxy for size
+        heavy = sum(1 for c in smi if c.isalpha() and c not in "lrnftaugsmdiob")
+        return heavy >= 3
+
+    smiles_list = [
+        s for s in mols.get_column("canonical_smiles").drop_nulls().to_list() if _is_drug_like(s)
+    ]
+    prioritized = sorted(set(smiles_list), key=lambda s: (s not in priority_smiles, s))
     if args.limit:
         prioritized = prioritized[: args.limit]
     log.info(
-        "Processing %d SMILES (%d in priority set).",
+        "Processing %d SMILES (%d in priority set, drug-like pre-filter applied).",
         len(prioritized),
-        sum(1 for s in prioritized if s in priority),
+        sum(1 for s in prioritized if s in priority_smiles),
     )
 
     cache = PriceCache(args.cache_path, ttl_days=30)
