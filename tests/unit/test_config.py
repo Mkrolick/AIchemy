@@ -1,5 +1,7 @@
+import textwrap
 from pathlib import Path
 
+import pytest
 from aichemy.config import (
     DedupConfig,
     FilterConfig,
@@ -9,7 +11,14 @@ from aichemy.config import (
     SourcesConfig,
     YieldConfig,
     YieldImputationStrategy,
+    load_config,
 )
+
+
+def _write(tmp_path: Path, name: str, body: str) -> Path:
+    path = tmp_path / name
+    path.write_text(textwrap.dedent(body))
+    return path
 
 
 def test_defaults() -> None:
@@ -35,3 +44,76 @@ def test_subconfigs_are_own_models() -> None:
     assert isinstance(PreprocessingConfig().sources, SourcesConfig)
     assert isinstance(PreprocessingConfig().prices, PricesConfig)
     assert isinstance(PreprocessingConfig().paths, PathsConfig)
+
+
+def test_loads_base_yaml(tmp_path: Path) -> None:
+    base = _write(
+        tmp_path,
+        "default.yaml",
+        """
+        dedup:
+          tanimoto_threshold: 0.9
+        filter:
+          min_carbon_count: 3
+        """,
+    )
+    cfg = load_config(base)
+    assert cfg.dedup.tanimoto_threshold == 0.9
+    assert cfg.filter.min_carbon_count == 3
+    assert cfg.dedup.reaction_tanimoto_threshold == 0.95  # default preserved
+
+
+def test_override_replaces_scalar(tmp_path: Path) -> None:
+    base = _write(tmp_path, "b.yaml", "dedup:\n  tanimoto_threshold: 0.9\n")
+    override = _write(tmp_path, "o.yaml", "dedup:\n  tanimoto_threshold: 0.5\n")
+    cfg = load_config(base, [override])
+    assert cfg.dedup.tanimoto_threshold == 0.5
+
+
+def test_override_deep_merges_dict(tmp_path: Path) -> None:
+    base = _write(
+        tmp_path,
+        "b.yaml",
+        """
+        dedup:
+          tanimoto_threshold: 0.9
+          fingerprint_radius: 2
+        """,
+    )
+    override = _write(tmp_path, "o.yaml", "dedup:\n  fingerprint_radius: 3\n")
+    cfg = load_config(base, [override])
+    assert cfg.dedup.tanimoto_threshold == 0.9  # from base, untouched
+    assert cfg.dedup.fingerprint_radius == 3  # from override
+
+
+def test_override_replaces_list(tmp_path: Path) -> None:
+    """Lists/tuples must be REPLACED, not concatenated (per spec)."""
+    base = _write(
+        tmp_path,
+        "b.yaml",
+        "yields:\n  enzymatic_prior_range: [0.85, 0.95]\n",
+    )
+    override = _write(
+        tmp_path,
+        "o.yaml",
+        "yields:\n  enzymatic_prior_range: [0.90, 0.99]\n",
+    )
+    cfg = load_config(base, [override])
+    assert cfg.yields.enzymatic_prior_range == (0.90, 0.99)
+
+
+def test_multiple_overrides_apply_in_order(tmp_path: Path) -> None:
+    base = _write(tmp_path, "b.yaml", "dedup:\n  tanimoto_threshold: 0.9\n")
+    o1 = _write(tmp_path, "o1.yaml", "dedup:\n  tanimoto_threshold: 0.5\n")
+    o2 = _write(tmp_path, "o2.yaml", "dedup:\n  tanimoto_threshold: 0.3\n")
+    cfg = load_config(base, [o1, o2])
+    assert cfg.dedup.tanimoto_threshold == 0.3  # last override wins
+
+
+def test_invalid_key_raises(tmp_path: Path) -> None:
+    from pydantic import ValidationError
+
+    base = _write(tmp_path, "b.yaml", "dedup:\n  tanimoto_threshold: 0.9\n")
+    override = _write(tmp_path, "o.yaml", "dedup:\n  nonexistent_key: 42\n")
+    with pytest.raises(ValidationError):
+        load_config(base, [override])
