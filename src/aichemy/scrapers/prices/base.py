@@ -110,10 +110,7 @@ class PriceScraperBase(ABC):
             last = _LAST_CALL_PER_DOMAIN.get(domain, 0.0)
             now = time.monotonic()
             elapsed = now - last
-            if elapsed < self._rate_limit:
-                wait = self._rate_limit - elapsed
-            else:
-                wait = 0.0
+            wait = self._rate_limit - elapsed if elapsed < self._rate_limit else 0.0
             _LAST_CALL_PER_DOMAIN[domain] = now + wait
         if wait > 0:
             time.sleep(wait)
