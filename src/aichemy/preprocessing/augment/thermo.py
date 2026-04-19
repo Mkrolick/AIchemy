@@ -23,7 +23,7 @@ import polars as pl
 log = logging.getLogger(__name__)
 
 
-def _import_equilibrator():
+def _import_equilibrator() -> tuple[type, type]:
     """Deferred import so users without the `thermo` extra can still import aichemy."""
     try:
         from equilibrator_api import Q_, ComponentContribution
