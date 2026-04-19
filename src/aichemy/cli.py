@@ -169,17 +169,21 @@ def normalize(
         typer.echo("[normalize] upstream MetaNetX interim missing; wrote empty parquets.")
         return
 
-    molecules = read_molecules(mnx_mol_in)
-    molecules = normalize_module.canonicalize_molecules(molecules)
+    mnx_mols = read_molecules(mnx_mol_in)
+    mnx_mols = normalize_module.canonicalize_molecules(mnx_mols)
 
     reactions = read_reactions(mnx_rxn_in)
     if uspto_rxn_in.exists():
         uspto_reactions = read_reactions(uspto_rxn_in)
         reactions = pl.concat([reactions, uspto_reactions], how="diagonal_relaxed")
 
-    # Apply the hydrocarbon filter using the MetaNetX carbon-counted molecules
-    # table. USPTO reactions will mostly be filtered out until their SMILES
-    # are parsed into mol_ids (a Stage 03 follow-up).
+        # Extract unique molecules from USPTO reactions so their mol_ids
+        # resolve during the carbon filter.
+        uspto_mols = normalize_module.extract_uspto_molecules(uspto_reactions)
+        molecules = normalize_module.merge_sources(mnx_mols, uspto_mols)
+    else:
+        molecules = mnx_mols
+
     filtered = normalize_module.filter_reactions_by_carbon(
         reactions, molecules, min_carbon=cfg.filter.min_carbon_count
     )
