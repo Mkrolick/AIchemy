@@ -21,6 +21,7 @@ dependencies = [
 solver = ["gurobipy>=11.0"]
 notebooks = ["jupyter", "pandas", "matplotlib"]
 balance = ["synrbl>=1.0.6"]           # optional USPTO atom-balancing (Stage 07)
+thermo = ["equilibrator-api>=0.7.0"]  # optional ΔG'° enrichment (Open Item 03)
 
 [project.scripts]
 aichemy = "aichemy.cli:app"
@@ -61,7 +62,7 @@ strict = true
 files = ["src/aichemy"]
 
 [[tool.mypy.overrides]]
-module = ["rdkit.*", "patito.*", "yaml", "synrbl", "synrbl.*", "pulp", "pulp.*", "py7zr"]
+module = ["rdkit.*", "patito.*", "yaml", "synrbl", "synrbl.*", "pulp", "pulp.*", "py7zr", "equilibrator_api", "equilibrator_api.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
 
@@ -78,6 +79,7 @@ module = [
     "aichemy.preprocessing.dedup.molecules",
     "aichemy.preprocessing.dedup.reactions",
     "aichemy.preprocessing.sources.uspto",
+    "aichemy.preprocessing.augment.thermo",
     "aichemy.solver.model",
     "aichemy.solver.cli",
 ]
