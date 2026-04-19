@@ -64,11 +64,28 @@ def ingest_metanetx(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """Parse MetaNetX TSVs to interim parquet. STUB: empty parquets."""
+    """Parse MetaNetX TSVs (reac_prop, chem_prop) into interim parquets."""
+    from aichemy.preprocessing.sources import metanetx as metanetx_module
+
     cfg = _load(config, override)
-    write_empty_reactions(interim_path(cfg, "metanetx", "reactions_raw.parquet"))
-    write_empty_molecules(interim_path(cfg, "metanetx", "molecules_raw.parquet"))
-    typer.echo("[STUB] ingest metanetx: wrote empty interim parquets.")
+    raw_dir = raw_path(cfg, "metanetx")
+    rxn_out = interim_path(cfg, "metanetx", "reactions_raw.parquet")
+    mol_out = interim_path(cfg, "metanetx", "molecules_raw.parquet")
+
+    chem_prop = raw_dir / "chem_prop.tsv"
+    reac_prop = raw_dir / "reac_prop.tsv"
+    if not (chem_prop.exists() and reac_prop.exists()):
+        write_empty_reactions(rxn_out)
+        write_empty_molecules(mol_out)
+        typer.echo(f"[ingest metanetx] raw TSVs missing at {raw_dir}; wrote empty parquets.")
+        return
+
+    molecules, reactions = metanetx_module.ingest_metanetx(raw_dir)
+    write_molecules(molecules, mol_out)
+    write_reactions(reactions, rxn_out)
+    typer.echo(
+        f"[ingest metanetx] wrote {molecules.height} molecules, {reactions.height} reactions."
+    )
 
 
 @ingest_app.command("uspto")
