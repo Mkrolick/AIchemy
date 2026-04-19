@@ -16,11 +16,21 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable, Sequence
+from enum import StrEnum
 
 import polars as pl
 from rdkit import Chem
 
 from aichemy.preprocessing.chem.smiles import parse
+
+
+class UnbalancedPolicy(StrEnum):
+    """What to do with reactions flagged as unbalanced by atom-count check."""
+
+    FLAG = "flag"  # default: set balanced=False, keep row
+    DROP = "drop"  # remove unbalanced rows entirely
+    HEURISTIC_H = "heuristic_h"  # attempt to balance by adding/removing H+
+    HEURISTIC_H2O = "heuristic_h2o"  # attempt to balance by adding/removing H2O
 
 
 def atom_counts(smiles: str, coefficient: float) -> Counter[str]:
@@ -69,10 +79,72 @@ def is_balanced(
     return True
 
 
+def try_heuristic_proton_balance(
+    reactants: list[dict],
+    products: list[dict],
+    tolerance: float = 1e-6,
+) -> tuple[list[dict], list[dict]] | None:
+    """Attempt to balance H count by adding a H+ (represented as `[H+]`) to one side.
+
+    Returns the adjusted (reactants, products) if balance is restored for H
+    alone; None if adding H+ does not produce a balanced reaction.
+    """
+    r = _sum_side(reactants)
+    p = _sum_side(products)
+    h_diff = r.get("H", 0) - p.get("H", 0)
+    if abs(h_diff) < tolerance:
+        return None  # already balanced, no adjustment needed
+    # Check every other element balances already.
+    for element in set(r) | set(p):
+        if element == "H":
+            continue
+        if abs(r.get(element, 0) - p.get(element, 0)) > tolerance:
+            return None
+    # Add |h_diff| protons to the side with less H.
+    proton = {"smiles": "[H+]", "coefficient": abs(h_diff)}
+    if h_diff > 0:
+        return reactants, [*products, proton]
+    return [*reactants, proton], products
+
+
+def try_heuristic_water_balance(
+    reactants: list[dict],
+    products: list[dict],
+    tolerance: float = 1e-6,
+) -> tuple[list[dict], list[dict]] | None:
+    """Attempt to balance reaction by adding H2O if only H (×2) and O (×1) differ.
+
+    Returns adjusted (reactants, products) on success; None otherwise.
+    """
+    r = _sum_side(reactants)
+    p = _sum_side(products)
+    o_diff = r.get("O", 0) - p.get("O", 0)
+    h_diff = r.get("H", 0) - p.get("H", 0)
+
+    if abs(o_diff) < tolerance and abs(h_diff) < tolerance:
+        return None  # already balanced on O + H
+    # For water balance: h_diff / o_diff must equal 2 and other elements balance.
+    if abs(o_diff) < tolerance:
+        return None  # would require H without O
+    ratio = h_diff / o_diff if o_diff != 0 else 0
+    if abs(ratio - 2) > 0.01:
+        return None
+    for element in set(r) | set(p):
+        if element in ("H", "O"):
+            continue
+        if abs(r.get(element, 0) - p.get(element, 0)) > tolerance:
+            return None
+    water = {"smiles": "O", "coefficient": abs(o_diff)}
+    if o_diff > 0:
+        return reactants, [*products, water]
+    return [*reactants, water], products
+
+
 def validate_reactions(
     df: pl.DataFrame,
     molecules: pl.DataFrame | None = None,
     ignore_elements: Sequence[str] = (),
+    unbalanced_policy: UnbalancedPolicy = UnbalancedPolicy.FLAG,
 ) -> pl.DataFrame:
     """Populate a `balanced: bool` column on a reactions DataFrame.
 
@@ -105,14 +177,41 @@ def validate_reactions(
         return resolved
 
     balanced_vals: list[bool] = []
+    keep_mask: list[bool] = []  # for DROP policy
     for row in df.iter_rows(named=True):
         reactants = _resolve(row["reactants"])
         products = _resolve(row["products"])
-        # If any participant couldn't be resolved to a SMILES, we can't
-        # compute balance accurately — mark unbalanced.
+
         if len(reactants) != len(row["reactants"]) or len(products) != len(row["products"]):
             balanced_vals.append(False)
-        else:
-            balanced_vals.append(is_balanced(reactants, products, ignore_elements=ignore_elements))
+            keep_mask.append(unbalanced_policy != UnbalancedPolicy.DROP)
+            continue
 
-    return df.with_columns(pl.Series("balanced", balanced_vals, dtype=pl.Boolean))
+        balanced = is_balanced(reactants, products, ignore_elements=ignore_elements)
+        if balanced:
+            balanced_vals.append(True)
+            keep_mask.append(True)
+            continue
+
+        # Attempt heuristic repair if configured
+        if unbalanced_policy == UnbalancedPolicy.HEURISTIC_H:
+            repaired = try_heuristic_proton_balance(reactants, products)
+            if repaired is not None:
+                balanced_vals.append(True)
+                keep_mask.append(True)
+                continue
+        elif unbalanced_policy == UnbalancedPolicy.HEURISTIC_H2O:
+            repaired = try_heuristic_water_balance(reactants, products)
+            if repaired is not None:
+                balanced_vals.append(True)
+                keep_mask.append(True)
+                continue
+
+        # Unbalanced + heuristic didn't apply (or wasn't configured)
+        balanced_vals.append(False)
+        keep_mask.append(unbalanced_policy != UnbalancedPolicy.DROP)
+
+    out = df.with_columns(pl.Series("balanced", balanced_vals, dtype=pl.Boolean))
+    if unbalanced_policy == UnbalancedPolicy.DROP:
+        out = out.filter(pl.Series("_keep", keep_mask, dtype=pl.Boolean))
+    return out
