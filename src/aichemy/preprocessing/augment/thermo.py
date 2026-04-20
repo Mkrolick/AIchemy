@@ -158,6 +158,7 @@ def augment_thermo(
     *,
     novostoic_path: Path | None = None,
     use_equilibrator_fallback: bool = True,
+    skip_sources: set[str] | None = None,
     ph: float = 7.0,
     ionic_strength: str = "0.25 M",
     temperature: str = "298.15 K",
@@ -170,7 +171,12 @@ def augment_thermo(
     fallback when ``use_equilibrator_fallback=True`` and the module is
     installed. Set ``use_equilibrator_fallback=False`` for a novoStoic-only
     run (fast; no 1.3 GB cache required).
+
+    Rows whose ``source`` is in ``skip_sources`` are left with ``delta_g=None``
+    without any resolution attempt (useful when USPTO is plumbed in but its
+    SMILES-based Tier 2 lookup is too slow to run).
     """
+    skip_sources = skip_sources or set()
     # Tier 1 — novoStoic precomputed lookup.
     novostoic: NovoStoicThermoLookup | None
     try:
@@ -182,8 +188,12 @@ def augment_thermo(
     # First pass: try novoStoic on every row.
     delta_g_values: list[float | None] = [None] * reactions.height
     unresolved_indices: list[int] = []
+    skipped_rows = 0
     for i, row in enumerate(reactions.iter_rows(named=True)):
         if "reactants" not in row or "products" not in row or not row["reactants"]:
+            continue
+        if row.get("source") in skip_sources:
+            skipped_rows += 1
             continue
         is_mnx = row.get("source") == "metanetx" or all(
             s["mol_id"].startswith("MNXM") for s in row["reactants"] + row["products"]
@@ -194,6 +204,9 @@ def augment_thermo(
                 delta_g_values[i] = dg
                 continue
         unresolved_indices.append(i)
+
+    if skipped_rows:
+        log.info("Skipped %d rows from sources %s.", skipped_rows, sorted(skip_sources))
 
     tier1_hits = sum(1 for v in delta_g_values if v is not None)
     log.info(

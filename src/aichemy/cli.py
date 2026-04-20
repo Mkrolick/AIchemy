@@ -430,6 +430,12 @@ def augment_prices(
 def augment_thermo(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
+    skip: bool = typer.Option(
+        False, "--skip", help="Bypass the whole step (pass input through unchanged)."
+    ),
+    skip_uspto: bool = typer.Option(
+        False, "--skip-uspto", help="Leave USPTO rows with delta_g=null (no Tier 2 attempt)."
+    ),
 ) -> None:
     """Populate delta_g (ΔG'°) via eQuilibrator on MetaNetX reactions."""
     cfg = _load(config, override)
@@ -442,21 +448,23 @@ def augment_thermo(
         typer.echo(f"[augment thermo] upstream {input_path} missing; wrote empty parquet.")
         return
 
-    if not thermo_module.is_available():
-        # Skip gracefully — populate as-is with delta_g left null.
+    if skip or not thermo_module.is_available():
         import shutil
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(input_path, output_path)
-        typer.echo(
-            "[augment thermo] equilibrator-api not installed; passing through "
-            f"{input_path} unchanged. Install with `uv sync --extra thermo` to enable."
+        reason = (
+            "--skip flag set"
+            if skip
+            else "equilibrator-api not installed (install with `uv sync --extra thermo`)"
         )
+        typer.echo(f"[augment thermo] {reason}; passing through {input_path} unchanged.")
         return
 
     df = read_reactions(input_path)
     molecules = read_molecules(molecules_path) if molecules_path.exists() else None
-    augmented = thermo_module.augment_thermo(df, molecules=molecules)
+    skip_sources = {"uspto"} if skip_uspto else None
+    augmented = thermo_module.augment_thermo(df, molecules=molecules, skip_sources=skip_sources)
     write_reactions(augmented, output_path)
     resolved = augmented.filter(pl.col("delta_g").is_not_null()).height
     typer.echo(
