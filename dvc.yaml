@@ -87,17 +87,8 @@ stages:
     outs:
       - data/interim/augmented/reactions_yields.parquet
 
-  augment_prices:
-    cmd: uv run aichemy augment prices --config configs/default.yaml
-    deps:
-      - configs/default.yaml
-      - src/aichemy/preprocessing/augment/prices.py
-      - data/interim/deduped/molecules.parquet
-    outs:
-      - data/interim/augmented/molecules_priced.parquet
-
   augment_thermo:
-    cmd: uv run aichemy augment thermo --config configs/default.yaml
+    cmd: uv run aichemy augment thermo --config configs/default.yaml --skip-uspto
     deps:
       - configs/default.yaml
       - src/aichemy/preprocessing/augment/thermo.py
@@ -114,6 +105,16 @@ stages:
       - data/interim/augmented/reactions_thermo.parquet
     outs:
       - data/interim/augmented/reactions_full.parquet
+
+  augment_prices:
+    cmd: uv run aichemy augment prices --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/augment/prices.py
+      - data/interim/deduped/molecules.parquet
+      - data/interim/augmented/reactions_full.parquet
+    outs:
+      - data/interim/augmented/molecules_priced.parquet
 
   export:
     cmd: uv run aichemy export --config configs/default.yaml
