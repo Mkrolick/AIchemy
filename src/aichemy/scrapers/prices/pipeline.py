@@ -1,11 +1,17 @@
 """Price-scraping pipeline: iterate SMILES, try scrapers in order, cache results.
 
+No vendor scrapers currently ship — the vendor-specific modules were torn
+out while we reconsider the price-data source (JHU Reaxys / SciFinder are
+the planned replacements). The pipeline infrastructure remains so a new
+scraper implementing ``PriceScraperBase`` can be dropped in and registered
+via ``aichemy.scrapers.prices.registry.register_scraper``.
+
 Load pattern:
     from aichemy.scrapers.prices import PriceCache
-    from aichemy.scrapers.prices.pipeline import PricePipeline, default_scrapers
+    from aichemy.scrapers.prices.pipeline import PricePipeline
 
     pipeline = PricePipeline(
-        scrapers=default_scrapers("Aichemy-research/0.1 (contact@example.com)"),
+        scrapers=[...],  # instantiate whatever scrapers you register
         cache=PriceCache(Path("data/interim/prices_cache.sqlite")),
     )
     for smi in smiles_list:
@@ -17,20 +23,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable, Sequence
 
-# Trigger registry registration on import.
-from aichemy.scrapers.prices import chemicalbook as _cb  # noqa: F401
-from aichemy.scrapers.prices import curated as _cur  # noqa: F401
-from aichemy.scrapers.prices import mcule as _mc  # noqa: F401
-from aichemy.scrapers.prices import playwright_fishersci as _pw_fs  # noqa: F401
-from aichemy.scrapers.prices import sigma as _sig  # noqa: F401
-from aichemy.scrapers.prices import thermofisher as _tf  # noqa: F401
 from aichemy.scrapers.prices.base import PriceQuote, PriceScraperBase
 from aichemy.scrapers.prices.cache import PriceCache, _Miss
 from aichemy.scrapers.prices.registry import get_scraper
 
 log = logging.getLogger(__name__)
 
-DEFAULT_VENDOR_ORDER = ["curated", "chemicalbook", "fisher_scientific"]
+DEFAULT_VENDOR_ORDER: list[str] = []
 
 
 def default_scrapers(
@@ -39,7 +38,10 @@ def default_scrapers(
     rate_limit_seconds: float = 3.0,
     respect_robots_txt: bool = False,
 ) -> list[PriceScraperBase]:
-    """Build the default stack of concrete scrapers."""
+    """Instantiate the named scrapers from the registry.
+
+    Returns an empty list when no scrapers are registered (current state).
+    """
     scrapers: list[PriceScraperBase] = []
     for name in order:
         s = get_scraper(
@@ -68,21 +70,14 @@ class PricePipeline:
         self._cache.close()
 
     def get_price(self, smiles: str) -> PriceQuote | None:
-        """Look up the first vendor that has a price; populate the cache on the way.
-
-        Cache semantics:
-        - Hit returned immediately from cache (no HTTP).
-        - Miss cached too — we won't retry that vendor for this SMILES
-          until the cache entry expires.
-        """
+        """Look up the first vendor that has a price; populate the cache on the way."""
         for scraper in self._scrapers:
             cached = self._cache.get(smiles, scraper.vendor_name)
             if isinstance(cached, PriceQuote):
                 return cached
             if isinstance(cached, _Miss):
-                continue  # known miss, try next vendor
+                continue
 
-            # Fresh fetch
             quote = scraper.fetch(smiles)
             self._cache.put(smiles, scraper.vendor_name, quote)
             if quote is not None:
@@ -90,7 +85,7 @@ class PricePipeline:
         return None
 
     def get_all_prices(self, smiles: str) -> list[PriceQuote]:
-        """Scrape EVERY vendor for this SMILES (populates cache, returns all hits)."""
+        """Scrape every vendor for this SMILES; populate cache; return all hits."""
         hits: list[PriceQuote] = []
         for scraper in self._scrapers:
             cached = self._cache.get(smiles, scraper.vendor_name)
