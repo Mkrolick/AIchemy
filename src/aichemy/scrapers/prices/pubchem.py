@@ -15,6 +15,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import quote
 
 import httpx
@@ -51,7 +52,7 @@ class PubChemResolver:
             time.sleep(self._rate - elapsed)
         self._last_call = time.monotonic()
 
-    def _get(self, path: str) -> dict | None:
+    def _get(self, path: str) -> dict[str, Any] | None:
         self._throttle()
         url = f"{BASE}/{path}"
         try:
@@ -62,7 +63,8 @@ class PubChemResolver:
         if resp.status_code != 200:
             return None
         try:
-            return resp.json()
+            data: dict[str, Any] = resp.json()
+            return data
         except json.JSONDecodeError:
             return None
 
