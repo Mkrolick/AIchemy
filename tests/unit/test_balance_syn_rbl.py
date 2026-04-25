@@ -26,7 +26,10 @@ def test_balance_reactions_fixes_missing_water() -> None:
     # needs water on the reactant side to balance.
     result = balance_reactions(["CC(=O)OCC>>CC(=O)O.CCO"], n_jobs=1)
     assert len(result) == 1
+    smi, conf = result[0]
     # SYN-RBL should add the missing water; the exact SMILES varies but
-    # "O" (water) should appear.
-    assert result[0] is not None
-    assert "O" in result[0]
+    # "O" (water) should appear. Ester hydrolysis solves on the rule-based
+    # path, which reports no confidence.
+    assert smi is not None
+    assert "O" in smi
+    assert conf is None
