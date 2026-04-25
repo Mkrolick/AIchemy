@@ -42,10 +42,10 @@ Last updated: 2026-04-19
 ## 🟡 Substantial stubs / scale limitations
 
 ### SYN-RBL has never been run on full USPTO (1.8M reactions)
-- **Status:** script `scripts/run_syn_rbl_full.py` exists with chunking + resume. Benchmarked to ~2.7 rxn/s single-threaded → ~8 days wall-clock single-machine. With `n_jobs=-1` (~10 cores) more like ~20 hours.
-- **Two prior attempts crashed** early because SYN-RBL has internal pandas bugs that throw `KeyError: 0` on malformed USPTO SMILES. Wrapper now has `max_retry_depth=1` binary subdivide to limit blast radius, but still loses ~half a failing batch.
+- **Status:** `aichemy balance uspto` (the DVC stage) chunks USPTO into batches of `--chunk-size` (default 5000) and runs SYN-RBL with `--workers` (default `n_jobs=-1`). A crashing batch is contained by the wrapper's try/except (returns all-unbalanced for that chunk) so blast radius ≤ one chunk. Benchmarked to ~2.7 rxn/s single-threaded → ~8 days wall-clock single-machine; with `n_jobs=-1` (~10 cores) more like ~20 hours.
+- **Two prior attempts crashed** early because SYN-RBL has internal pandas bugs that throw `KeyError: 0` on malformed USPTO SMILES. Chunking now contains those crashes per-batch.
 - **Current state:** only `3% of USPTO is balanced as-ingested`. Full-SYN-RBL recovery rate is extrapolated (~50–90% based on 50-row sample at 100%) but not measured at scale.
-- **What's needed:** ~20 hours of wall-clock on a workstation. Can resume from partial shards.
+- **What's needed:** ~20 hours of wall-clock on a workstation. No on-disk resume — interrupting discards in-memory progress.
 
 ### MILP solver does not scale to combined MetaNetX + USPTO network
 - CBC (bundled solver) handles 42,760 balanced MetaNetX reactions in ~6 min. Adding even 100k USPTO reactions extrapolates to hours, and full ~1M USPTO will not terminate in useful time.
