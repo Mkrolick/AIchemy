@@ -47,15 +47,11 @@ def _estimate_price_per_gram(smiles: str) -> float | None:
     if heavy_atoms == 0:
         return None
 
-    # Count atom types
-    n_c = sum(1 for a in mol.GetAtoms() if a.GetSymbol() == "C")
+    # Count atom types referenced by the price formula below.
     n_n = sum(1 for a in mol.GetAtoms() if a.GetSymbol() == "N")
-    n_o = sum(1 for a in mol.GetAtoms() if a.GetSymbol() == "O")
     n_s = sum(1 for a in mol.GetAtoms() if a.GetSymbol() == "S")
     n_p = sum(1 for a in mol.GetAtoms() if a.GetSymbol() == "P")
-    n_halogen = sum(
-        1 for a in mol.GetAtoms() if a.GetSymbol() in ("F", "Cl", "Br", "I")
-    )
+    n_halogen = sum(1 for a in mol.GetAtoms() if a.GetSymbol() in ("F", "Cl", "Br", "I"))
     n_aromatic = sum(1 for a in mol.GetAtoms() if a.GetIsAromatic())
     n_rings = mol.GetRingInfo().NumRings()
 
@@ -100,10 +96,7 @@ def main() -> int:
     parser.add_argument(
         "--molecules-path",
         type=Path,
-        default=Path(__file__).resolve().parents[1]
-        / "data"
-        / "processed"
-        / "molecules.parquet",
+        default=Path(__file__).resolve().parents[1] / "data" / "processed" / "molecules.parquet",
     )
     args = parser.parse_args()
 
