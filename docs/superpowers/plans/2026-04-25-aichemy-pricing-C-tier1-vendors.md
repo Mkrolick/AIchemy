@@ -386,7 +386,7 @@ def test_molbase_returns_none_on_404(monkeypatch) -> None:
     assert MolbaseVendor().lookup(VendorRef(vendor="molbase", sku="00-00-0")) is None
 
 
-def test_molbase_extracts_price_and_pack_from_html(monkeypatch) -> None:
+def test_molbase_extracts_usd_price_and_pack_from_html(monkeypatch) -> None:
     body = (
         b"<html><head><title>Aspirin price &amp; availability - MOLBASE</title></head>"
         b"<body><div class='supplier-row'>"
@@ -399,6 +399,20 @@ def test_molbase_extracts_price_and_pack_from_html(monkeypatch) -> None:
     assert quote.currency == "USD"
     assert quote.price == 12.50
     assert quote.pack_size_g == 5.0
+
+
+def test_molbase_extracts_cny_price_chinese_supplier(monkeypatch) -> None:
+    """Per CLAIM-18 the majority of Molbase suppliers are Chinese, so CNY (¥)
+    must be parsed correctly — many compounds list ONLY in CNY."""
+    body = (
+        "<html><body><span class='price'>¥ 88.00</span>"
+        "<span class='pack'>10g</span></body></html>"
+    ).encode()
+    _patch_http(monkeypatch, status=200, body=body)
+    quote = MolbaseVendor().lookup(VendorRef(vendor="molbase", sku="50-78-2"))
+    assert quote is not None
+    assert quote.currency == "CNY"
+    assert quote.price == 88.00
 
 
 def test_molbase_returns_none_when_no_price_found(monkeypatch) -> None:
@@ -427,9 +441,10 @@ Per CLAIM-18 (PARTIAL):
   (Original report's /en/cas-{CAS}.html 404s 100%.)
   Anonymous list prices visible. SKU = CAS number.
 
-Page is server-rendered HTML; we extract the cheapest visible (price, pack)
-pair via targeted regex. Pack-size text is reliable (`<digits><unit>`); price
-text varies in currency symbol position so we accept USD / US$ / $ prefixes.
+Page is server-rendered HTML; we extract the first visible (currency, price,
+pack) triple via targeted regex. Currency is captured because the majority
+of Molbase suppliers are Chinese and price exclusively in CNY (¥) — defaulting
+to USD would silently mis-label these.
 """
 from __future__ import annotations
 
@@ -439,11 +454,23 @@ from datetime import datetime, timezone
 import httpx
 
 from aichemy_pricing.http import make_plain_client
-from aichemy_pricing.types import PriceQuote, VendorRef
+from aichemy_pricing.types import Currency, PriceQuote, VendorRef
 from aichemy_pricing.vendors._common import pack_size_to_grams
 
-_PRICE_RE = re.compile(r"(?:USD|US\$|\$)\s*([\d,.]+)", re.I)
+# Capture group 1 = currency token; group 2 = numeric price.
+_PRICE_RE = re.compile(r"(USD|US\$|\$|¥|CNY|RMB|EUR|€|GBP|£)\s*([\d,.]+)", re.I)
 _PACK_RE = re.compile(r"\b([\d.]+)\s*(mg|g|kg)\b", re.I)
+
+_TOKEN_TO_CURRENCY: dict[str, Currency] = {
+    "USD": "USD", "US$": "USD", "$": "USD",
+    "¥": "CNY", "CNY": "CNY", "RMB": "CNY",
+    "EUR": "EUR", "€": "EUR",
+    "GBP": "GBP", "£": "GBP",
+}
+
+
+def _normalize_currency(token: str) -> Currency | None:
+    return _TOKEN_TO_CURRENCY.get(token.upper()) or _TOKEN_TO_CURRENCY.get(token)
 
 
 class MolbaseVendor:
@@ -462,11 +489,11 @@ class MolbaseVendor:
         m_pack = _PACK_RE.search(text)
         if not (m_price and m_pack):
             return None
-        try:
-            price = float(m_price.group(1).replace(",", ""))
-        except ValueError:
+        currency = _normalize_currency(m_price.group(1))
+        if currency is None:
             return None
         try:
+            price = float(m_price.group(2).replace(",", ""))
             size = float(m_pack.group(1))
         except ValueError:
             return None
@@ -475,7 +502,7 @@ class MolbaseVendor:
             vendor=self.name,
             sku=ref.sku,
             price=price,
-            currency="USD",
+            currency=currency,
             pack_size_g=pack_size_to_grams(size, unit),
             fetched_at=datetime.now(timezone.utc),
             raw={"url": url},
@@ -676,9 +703,9 @@ git commit -m "feat(pricing): TocrisVendor — SSR HTML pack-price extraction"
 | Test file | Offline | Live | Notes |
 |---|---:|---:|---|
 | `test_vendors_fluorochem.py` | 5 | 1 | Real-fixture parse; kg unit; 404; missing pricing block; product-only fallback; (live) F765353 |
-| `test_vendors_molbase.py` | 4 | 1 | Correct URL builder; 404; price+pack extraction; no-price; (live) aspirin |
+| `test_vendors_molbase.py` | 5 | 1 | Correct URL builder; 404; USD parse; **CNY parse (Chinese supplier)**; no-price; (live) aspirin |
 | `test_vendors_tocris.py` | 4 | 1 | Synthetic-HTML parse; 404; no-price; correct URL; (live) JW 642 |
-| **Total** | **13** | **3** | All offline tests run in <2s. Live tests require `-m live` flag. |
+| **Total** | **14** | **3** | All offline tests run in <2s. Live tests require `-m live` flag. |
 
 **All-tests command (offline only):**
 ```bash

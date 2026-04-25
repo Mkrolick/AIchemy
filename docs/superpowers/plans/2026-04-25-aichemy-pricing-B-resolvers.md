@@ -4,12 +4,12 @@
 >
 > **Parent plan:** `docs/superpowers/plans/2026-04-25-aichemy-pricing-package.md`
 > **Verification source:** `experiments/chem-pricing-verification/CLAIMS.md` (CLAIM-04, CLAIM-08, CLAIM-03 + CLAIM-20 are the load-bearing claims for this sub-plan)
-> **Depends on:** Sub-Plan A (uses `ResolverHit`, `VendorResolver`, `_iter_sdf_records`)
+> **Depends on:** Sub-Plan A (uses `ResolverHit`, `VendorResolver`)
 > **Delivers (consumed by sub-plans D and E):**
 > - `aichemy_pricing.resolvers.PubChemSdfResolver` — InChIKey → vendor SKU from PubChem Substance SDF FTP dump
 > - `aichemy_pricing.resolvers.EnamineSdfResolver` — InChIKey → EN300-* SKU from Enamine BB SDFs
 > - `aichemy_pricing.resolvers.ZincTrancheResolver` — InChIKey → multi-vendor SKU map from ZINC20 2D tranches
-> - Shared streaming SDF parser `_iter_sdf_records` (private)
+> - Shared streaming SDF parser `iter_sdf_records` in `aichemy_pricing.resolvers._sdf` (module is private; function is module-public so resolvers can import it)
 
 **Goal:** Build the "scrape less, resolve more" half of the package. Three offline resolvers parse pre-downloaded SDF / SMI files and emit `ResolverHit(inchikey → vendor + sku)` so that the live scrapers in sub-plans C/D never need to hit a vendor's search endpoint.
 
@@ -571,16 +571,50 @@ def test_resolver_skips_rows_without_inchikey(tmp_path) -> None:
     assert res.index == {}
 
 
+def test_resolver_handles_alternate_column_order(tmp_path) -> None:
+    """Real ZINC cohorts emit columns in different orders; the parser must
+    locate the InChIKey by *shape*, not by fixed position."""
+    # InChIKey first, SMILES last (some cohorts/exports do this).
+    smi = (
+        "inchikey\tzinc_id\tvendor:supplier_code\tsmiles\n"
+        "LFQSCWFLJHTTHZ-UHFFFAOYSA-N\tZINC702\tsigma:E7023\tCCO\n"
+    )
+    p = tmp_path / "alt.smi"
+    p.write_text(smi)
+    res = ZincTrancheResolver.from_files([p])
+    hits = res.resolve("LFQSCWFLJHTTHZ-UHFFFAOYSA-N")
+    assert len(hits) == 1 and hits[0].vendor == "sigma"
+
+
+def test_resolver_rejects_non_inchikey_strings(tmp_path) -> None:
+    """A row whose 'inchikey' column is malformed (wrong length / shape) must
+    not pollute the index — even if a vendor field is present."""
+    smi = "smiles\tzinc_id\tinchikey\tvendor:supplier_code\nCCO\tZINC0\tNOT-A-VALID-IK\tsigma:X\n"
+    p = tmp_path / "bad.smi"
+    p.write_text(smi)
+    res = ZincTrancheResolver.from_files([p])
+    assert res.index == {}
+
+
 @pytest.mark.live
 def test_resolver_parses_real_tranche_fixture(fixture_dir) -> None:
-    """If the fixture was captured (zinc_tranche_sample.smi), verify it loads
-    without exceptions. Skipped if no fixture present."""
+    """If the fixture was captured, the resolver must extract at least one
+    indexed InChIKey. A silent empty-index pass would mask the parser being
+    out-of-sync with the real ZINC tranche file format."""
     p = fixture_dir / "zinc_tranche_sample.smi"
     if not p.exists() or p.stat().st_size == 0:
         pytest.skip("no zinc tranche fixture captured")
     res = ZincTrancheResolver.from_files([p])
-    # We can't assert specific keys; just verify the loader didn't crash.
     assert isinstance(res.index, dict)
+    # If the fixture has tabs and at least one valid InChIKey-shaped column,
+    # we must index at least one entry. If this fails, the parser is wrong
+    # for the captured tranche format — fix the resolver, not the test.
+    has_tabs = "\t" in p.read_text(errors="replace")
+    if has_tabs:
+        assert res.index, (
+            "tranche fixture is tab-separated but parser indexed zero InChIKeys; "
+            "real ZINC column layout likely differs from what the resolver assumes"
+        )
 ```
 
 - [ ] **Step 3: Implement**
@@ -593,23 +627,29 @@ Per CLAIM-03 (VERIFIED): https://files.docking.org/2D/ hosts ZINC20 tranches.
 Per CLAIM-02 (PARTIAL): the report's catitms `count=all` URL 404s anonymously;
 use the Tranche Browser instead.
 
-Tranche file format (tab-separated, one molecule per line):
-    smiles    zinc_id    [inchikey]    [vendor1:code1;vendor2:code2;...]
+Tranche file format varies across cohorts. Common shapes (tab-separated):
+    smiles  zinc_id  [inchikey]  [vendor1:code1;vendor2:code2;...]
+…or (rarely):
+    inchikey  zinc_id  vendor:supplier_code  smiles
 
-Column layout varies across cohorts; we accept either of:
-  - 4-column: smiles, zinc_id, inchikey, vendor:code list
-  - 3-column: smiles, zinc_id, inchikey         (no vendor codes — skipped)
+We do not trust column positions. Instead the parser scans each row for:
+  • an InChIKey-shaped token (regex `[A-Z]{14}-[A-Z]{10}-[A-Z]`)
+  • a vendor-list-shaped token (contains `:`; vendor codes split on `;`)
 
-The vendor:code field is semicolon-separated; the `combiblocksbb` short_name
-is the recognized ZINC short_name for Combi-Blocks (CLAIM-20).
+This makes the resolver robust to layout variation across cohorts.
+The `combiblocksbb` short_name is the recognized ZINC short_name for
+Combi-Blocks (CLAIM-20).
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from aichemy_pricing.types import ResolverHit
+
+_INCHIKEY_RE = re.compile(r"^[A-Z]{14}-[A-Z]{10}-[A-Z]$")
 
 
 def _parse_vendor_field(field_value: str) -> list[tuple[str, str]]:
@@ -620,9 +660,25 @@ def _parse_vendor_field(field_value: str) -> list[tuple[str, str]]:
         if not token or ":" not in token:
             continue
         vendor, code = token.split(":", 1)
+        vendor, code = vendor.strip(), code.strip()
         if vendor and code:
-            out.append((vendor.strip(), code.strip()))
+            out.append((vendor, code))
     return out
+
+
+def _find_inchikey(parts: list[str]) -> str | None:
+    for p in parts:
+        if _INCHIKEY_RE.match(p.strip()):
+            return p.strip()
+    return None
+
+
+def _find_vendor_field(parts: list[str]) -> str | None:
+    """Pick the first column that parses as at least one `vendor:code` token."""
+    for p in parts:
+        if ":" in p and _parse_vendor_field(p):
+            return p
+    return None
 
 
 @dataclass
@@ -635,13 +691,16 @@ class ZincTrancheResolver:
         self = cls()
         for path in paths:
             with Path(path).open("rt", errors="replace") as f:
-                header = f.readline()  # discard header row
+                _header = f.readline()  # discard header row
                 for line in f:
                     parts = line.rstrip("\n").split("\t")
-                    if len(parts) < 4:
+                    if len(parts) < 2:
                         continue
-                    _smiles, _zinc_id, inchikey, vendor_field = parts[:4]
-                    if not inchikey:
+                    inchikey = _find_inchikey(parts)
+                    if inchikey is None:
+                        continue
+                    vendor_field = _find_vendor_field(parts)
+                    if vendor_field is None:
                         continue
                     for vendor, code in _parse_vendor_field(vendor_field):
                         self.index[inchikey].append(
@@ -682,8 +741,8 @@ git commit -m "feat(pricing): ZincTrancheResolver — InChIKey → multi-vendor 
 | `test_sdf_parser.py` | 3 | Two-record parse; multiline values; truncated-record handling |
 | `test_resolvers_pubchem.py` | 5 | Indexing; per-hit shape; allowed_sources filter; unknown-IK; URL field |
 | `test_resolvers_enamine.py` | 3 | Indexing + URL construction; bare-id normalization to EN300-*; unknown-IK |
-| `test_resolvers_zinc.py` | 3 + 1 `live` | Synthetic SMI parsing; multi-vendor split; missing-IK skip; (live) real-fixture load |
-| **Total** | **14 + 1 live** | All offline unit tests run in <2s. |
+| `test_resolvers_zinc.py` | 5 + 1 `live` | Synthetic SMI parse; missing-IK skip; **alternate column order**; **rejects malformed IK**; multi-vendor split; (live) real-fixture must produce ≥1 hit |
+| **Total** | **16 + 1 live** | All offline unit tests run in <2s. |
 
 **All-tests command:**
 ```bash

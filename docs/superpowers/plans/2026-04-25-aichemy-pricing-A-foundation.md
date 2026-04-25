@@ -160,10 +160,16 @@ Run live-only with:  pytest src/aichemy_pricing/tests -m live
 from __future__ import annotations
 
 import pathlib
+import re
 
 import pytest
 
 DATA = pathlib.Path(__file__).parent / "data"
+
+# `-m live` (or `-m "live or X"`) opts the user IN to live tests.
+# `-m "not live"` (or default no `-m`) opts them OUT.
+# The negative-lookbehind regex matches "live" as a whole word NOT preceded by "not ".
+_LIVE_OPT_IN = re.compile(r"(?<!not )\blive\b")
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -171,7 +177,8 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    if config.option.markexpr and "live" in config.option.markexpr:
+    markexpr = config.option.markexpr or ""
+    if _LIVE_OPT_IN.search(markexpr):
         return  # caller asked for live; don't filter
     skip_live = pytest.mark.skip(reason="live network test; pass -m live to enable")
     for item in items:

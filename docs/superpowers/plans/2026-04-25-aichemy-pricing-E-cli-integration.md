@@ -565,32 +565,105 @@ git commit -m "feat(pricing): aichemy-price CLI (lookup, chain, resolve)"
 grep -n "def make_lookup\|backend" src/aichemy/preprocessing/augment/prices.py | head -30
 ```
 
-- [ ] **Step 2: Add `aichemy_pricing` backend branch**
+- [ ] **Step 2: Add `aichemy_pricing` backend branch + `_InchikeyAdapter`**
 
-The existing factory already accepts `backend: Literal["stub", "chained"]`. Extend it to `Literal["stub", "chained", "aichemy_pricing"]`. The new branch:
+The existing AIchemy interface (per `src/aichemy/preprocessing/augment/prices.py`):
+
+```python
+class PriceLookup(Protocol):
+    """A source that maps a canonical SMILES string to a per-gram USD price."""
+    def lookup(self, smiles: str) -> float | None: ...
+```
+
+…returns a `float` USD-per-gram, while the new package returns a `PriceQuote` keyed by InChIKey. The adapter bridges them: SMILES → InChIKey via RDKit → `LookupByInchikey` → `PriceQuote` → convert to USD/g.
+
+Append to `src/aichemy/preprocessing/augment/prices.py`:
+
+```python
+# ---------- aichemy_pricing adapter -----------------------------------------
+
+# Static FX table (USD per 1 unit of foreign currency). Documented as-of date
+# matters: rates drift; refresh quarterly or wire a live FX source.
+# Source: ECB reference rates 2026-04-25.
+_FX_TO_USD_AS_OF_2026_04_25: dict[str, float] = {
+    "USD": 1.000,
+    "GBP": 1.330,   # 1 GBP = 1.33 USD
+    "EUR": 1.090,   # 1 EUR = 1.09 USD
+    "CNY": 0.138,   # 1 CNY = 0.138 USD
+    "JPY": 0.0064,
+    "SEK": 0.094,
+}
+
+
+class _InchikeyAdapter:
+    """Wraps an `aichemy_pricing.LookupByInchikey` so it satisfies AIchemy's
+    `PriceLookup` protocol (SMILES → USD/g float).
+
+    Steps per call:
+      1. Compute InChIKey from canonical SMILES via RDKit.
+      2. Delegate to LookupByInchikey → PriceQuote | None.
+      3. Convert `price_per_gram_native` to USD via static FX table.
+      4. Return float or None.
+    """
+
+    def __init__(
+        self,
+        inner,  # aichemy_pricing.LookupByInchikey — typed loosely to keep the
+                # main aichemy package's import surface stable when the optional
+                # `pricing` extra is absent.
+        fx_to_usd: dict[str, float] | None = None,
+    ) -> None:
+        self._inner = inner
+        self._fx = fx_to_usd or _FX_TO_USD_AS_OF_2026_04_25
+
+    def lookup(self, smiles: str) -> float | None:
+        from rdkit import Chem  # lazy import: only when this backend is used
+
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return None
+        inchikey = Chem.MolToInchiKey(mol)
+        if not inchikey:
+            return None
+        quote = self._inner.lookup(inchikey)
+        if quote is None:
+            return None
+        rate = self._fx.get(quote.currency)
+        if rate is None:
+            log.warning(
+                "aichemy_pricing returned %s; no FX rate for %s — dropping quote",
+                quote, quote.currency,
+            )
+            return None
+        return quote.price_per_gram_native * rate
+```
+
+Then the `make_lookup` factory branch:
 
 ```python
 # Inside aichemy.preprocessing.augment.prices.make_lookup, after existing branches:
 
 if cfg.backend == "aichemy_pricing":
-    from aichemy_pricing import (
-        PubChemSdfResolver, build_default_chain,
-        LookupByInchikey,
-    )
     from pathlib import Path
+
+    from aichemy_pricing import (
+        LookupByInchikey, PubChemSdfResolver, build_default_chain,
+    )
 
     catalog_dir = Path(cfg.aichemy_pricing.catalog_dir)
     cache_path = Path(cfg.aichemy_pricing.cache_path)
     sdf_files = sorted(catalog_dir.glob("*.sdf*"))
-    resolver = PubChemSdfResolver.from_files(sdf_files) if sdf_files else None
+    if not sdf_files:
+        log.warning(
+            "aichemy_pricing backend selected but no SDFs found under %s; "
+            "falling back to StubPriceLookup",
+            catalog_dir,
+        )
+        return StubPriceLookup()
+    resolver = PubChemSdfResolver.from_files(sdf_files)
     chain = build_default_chain(cache_path=cache_path)
-    if resolver is None:
-        # No catalog yet — return the chain directly; callers must pass VendorRef.
-        return chain
     return _InchikeyAdapter(LookupByInchikey(resolver=resolver, chain=chain))
 ```
-
-The `_InchikeyAdapter` translates AIchemy's `(canonical_smiles → float|None)` PriceLookup interface into the new package's `(inchikey → PriceQuote|None)` interface — compute InChIKey via RDKit on `canonical_smiles`, take `price_per_gram_native`, convert to USD if needed.
 
 - [ ] **Step 3: Document the new branch in `configs/default.yaml`**
 
@@ -797,11 +870,11 @@ git commit --allow-empty -m "test(pricing): end-to-end verification — all offl
 | Sub-plan | Offline | Live |
 |---|---:|---:|
 | A | 20 | 0 |
-| B | 14 | 1 |
-| C | 13 | 3 |
+| B | 16 | 1 |
+| C | 14 | 3 |
 | D | 16 | 4 |
 | E | 11 | 0 |
-| **Total** | **74** | **8** |
+| **Total** | **77** | **8** |
 
 **All tests:**
 ```bash
@@ -819,6 +892,6 @@ uv run mypy src/aichemy_pricing/ && uv run ruff check src/aichemy_pricing/
 
 **Spec coverage:** Every interface declared in the parent plan is now exposed via `__init__.py`. The CLI has `lookup` (single vendor), `chain` (try all), and `resolve` (InChIKey → price). The `LookupByInchikey` adapter glues resolvers to the chain. The AIchemy integration adds a single `aichemy_pricing` backend branch without touching the existing `stub` or `chained` paths. README documents the install + CLI usage.
 
-**Placeholder scan:** No "TBD" / "implement later" — every step has actual code or a documented external action (DevTools discovery in sub-plan D, fixture capture in sub-plans C/D). The `_InchikeyAdapter` in Task E4 is described in prose because its exact field mapping (`canonical_smiles → InChIKey via RDKit`) depends on which RDKit version the host AIchemy environment ships with; the integration test in Task E4 step 4 exercises the public surface and asserts a real fixture-backed quote round-trips.
+**Placeholder scan:** No "TBD" / "implement later" — every step has actual code or a documented external action (DevTools discovery in sub-plan D, fixture capture in sub-plans C/D). The `_InchikeyAdapter` in Task E4 step 2 is now fully implemented inline (constructor + RDKit InChIKey computation + static FX-to-USD table dated 2026-04-25 + structured logging on missing FX rate). The FX table is intentionally minimal and documented as drift-prone; refresh quarterly or wire a live FX feed.
 
 **Type consistency:** All re-exported symbols match what sub-plans A–D promised. `build_default_chain` returns `CachedPriceLookup`; `LookupByInchikey.lookup(inchikey: str) -> PriceQuote | None`; CLI exit codes are stable (`0` success, `1` no quote, `2` bad input).

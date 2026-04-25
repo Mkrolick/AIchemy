@@ -48,16 +48,18 @@ src/aichemy_pricing/tests/
 
 ### D1.0: One-time DevTools discovery
 
+**Pre-discovery facts** (verified by inspecting the React/Next.js bundle at `/static/js/main.060dfd03.js`):
+- The customer-facing host `enaminestore.com` is a thin shell. The **actual product backend is `ebc.enamine.net`** (visible in the bundle as `https://ebc.enamine.net/molecule-product/`).
+- `https://ebc.enamine.net/molecule-product/<sku>` returns the Next.js HTML; the JSON endpoint is a separate route on the same host.
+- Common patterns to try in DevTools: `/api/`, `/_next/data/.../{sku}.json`, or a server-action under `/molecule-product/`.
+
 - [ ] **Step 1: Open Chrome DevTools → Network → filter XHR/fetch.**
-- [ ] **Step 2: Visit `https://enaminestore.com/catalog/EN300-7605608`.**
-- [ ] **Step 3: Identify the request that returns pricing data.**
+- [ ] **Step 2: Visit `https://enaminestore.com/catalog/EN300-7605608`** with DevTools open. Watch for requests to `ebc.enamine.net` in particular.
+- [ ] **Step 3: Identify the JSON request that returns pricing data.**
 
-  Likely candidates (try in order):
-  - `https://www.enaminestore.com/api/v1/catalog/EN300-{N}`
-  - `https://enaminestore.com/api/products/EN300-{N}`
-  - `https://api.enaminestore.com/...`
+  Look for a response body containing fields like `Pricing`, `Quantity`, or `Price` (NOT just an HTML body — Next.js will serve HTML for the catch-all route). Right-click the right entry → Copy → Copy as cURL. Confirm the response `Content-Type` is `application/json`.
 
-  Look for a response body containing fields like `Pricing`, `Quantity`, or `Price`. Right-click → Copy → Copy as cURL.
+  If no JSON XHR is observed, the page may be a React Server Component fetch — the data arrives embedded in the initial HTML response from `ebc.enamine.net/molecule-product/{sku}`. In that case, fall back to **HTML parsing**: capture that HTML body as fixture and write a regex parser instead of a JSON parser.
 
 - [ ] **Step 4: Save the response body as fixture:**
 
@@ -179,14 +181,24 @@ from aichemy_pricing.http import make_plain_client
 from aichemy_pricing.types import PriceQuote, VendorRef
 from aichemy_pricing.vendors._common import pack_size_to_grams
 
-# TODO during D1.0: replace with the actual discovered URL pattern.
-_API_URL = "https://www.enaminestore.com/api/v1/catalog/{sku}"
+# MUST be replaced during D1.0 with the real discovered endpoint.
+# Backend host is known (`ebc.enamine.net`); the path/method depends on whether
+# the React app uses a JSON XHR or a server-component HTML fetch.
+_PLACEHOLDER_API_URL = "https://ebc.enamine.net/molecule-product/{sku}.json"
+_API_URL = _PLACEHOLDER_API_URL  # ⚠️ overwrite after D1.0
 
 
 class EnamineVendor:
     name = "enamine"
 
     def __init__(self, client: httpx.Client | None = None) -> None:
+        if _API_URL == _PLACEHOLDER_API_URL:
+            # Fail loud rather than silently returning None for every lookup.
+            raise NotImplementedError(
+                "EnamineVendor: _API_URL is still the discovery placeholder. "
+                "Run Task D1.0 to identify the real XHR endpoint via DevTools, "
+                "then overwrite _API_URL with the discovered pattern."
+            )
         self._client = client or make_plain_client()
 
     def lookup(self, ref: VendorRef) -> PriceQuote | None:

@@ -9,11 +9,11 @@ This master plan is broken into 5 self-contained sub-plans. Each can be reviewed
 | Sub-plan | File | Depends on | Tests (offline + live) |
 |---|---|---|---:|
 | **A** Foundation | [`2026-04-25-aichemy-pricing-A-foundation.md`](./2026-04-25-aichemy-pricing-A-foundation.md) | — | 20 + 0 |
-| **B** Offline resolvers | [`2026-04-25-aichemy-pricing-B-resolvers.md`](./2026-04-25-aichemy-pricing-B-resolvers.md) | A | 14 + 1 |
-| **C** Tier 1 vendors | [`2026-04-25-aichemy-pricing-C-tier1-vendors.md`](./2026-04-25-aichemy-pricing-C-tier1-vendors.md) | A | 13 + 3 |
+| **B** Offline resolvers | [`2026-04-25-aichemy-pricing-B-resolvers.md`](./2026-04-25-aichemy-pricing-B-resolvers.md) | A | 16 + 1 |
+| **C** Tier 1 vendors | [`2026-04-25-aichemy-pricing-C-tier1-vendors.md`](./2026-04-25-aichemy-pricing-C-tier1-vendors.md) | A | 14 + 3 |
 | **D** Tier 2+3 vendors | [`2026-04-25-aichemy-pricing-D-tier2-3-vendors.md`](./2026-04-25-aichemy-pricing-D-tier2-3-vendors.md) | A (parallel with B/C) | 16 + 4 |
 | **E** CLI + integration | [`2026-04-25-aichemy-pricing-E-cli-integration.md`](./2026-04-25-aichemy-pricing-E-cli-integration.md) | A, B, C, D | 11 + 0 |
-| **Total** | | | **74 + 8** |
+| **Total** | | | **77 + 8** |
 
 **Recommended execution DAG:**
 - A first.
