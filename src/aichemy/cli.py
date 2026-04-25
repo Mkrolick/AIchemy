@@ -188,6 +188,7 @@ def normalize(
     filtered = normalize_module.filter_reactions_by_carbon(
         reactions, molecules, min_carbon=cfg.filter.min_carbon_count
     )
+    molecules = normalize_module.filter_molecules_by_usage(molecules, filtered)
 
     write_molecules(molecules, mol_out)
     write_reactions(filtered, rxn_out)
