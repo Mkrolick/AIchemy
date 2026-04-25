@@ -25,6 +25,12 @@ import polars as pl
 
 from aichemy.preprocessing.balance.syn_rbl import balance_reactions
 
+# Trust deterministic SYN-RBL solves (rule-based / input-balanced report no
+# confidence); require confidence > 0.8 for MCS-imputed solves where SYN-RBL
+# is guessing missing compounds and can produce nonsense (e.g. CCCC.O>>CCCO
+# "fixed" to CCCC.O.[O]>>CCCO.CO at confidence 0.30).
+CONFIDENCE_THRESHOLD = 0.8
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -80,14 +86,19 @@ def main() -> int:
         rxn_smiles_list = chunk["reaction_smiles"].to_list()
 
         t0 = time.time()
-        balanced_smiles = balance_reactions(rxn_smiles_list, n_jobs=args.workers)
+        balance_results = balance_reactions(rxn_smiles_list, n_jobs=args.workers)
         elapsed = time.time() - t0
 
         # Attach results back to the chunk.
-        balanced_bool = [b is not None for b in balanced_smiles]
+        balanced_bool = [
+            smi is not None and (conf is None or conf > CONFIDENCE_THRESHOLD)
+            for smi, conf in balance_results
+        ]
         new_rxn_smiles = [
-            balanced if balanced is not None else orig
-            for orig, balanced in zip(rxn_smiles_list, balanced_smiles, strict=True)
+            smi if is_bal else orig
+            for orig, (smi, _conf), is_bal in zip(
+                rxn_smiles_list, balance_results, balanced_bool, strict=True
+            )
         ]
         out_df = chunk.with_columns(
             pl.Series("reaction_smiles", new_rxn_smiles),
