@@ -120,10 +120,15 @@ There is **no** `min_gbp`, `max_gbp`, `has_stock_uk`, `has_stock_germany`, or `h
 
 ```bash
 mkdir -p src/aichemy_pricing/tests/data
-curl -s "https://fluorochemcouk.blob.core.windows.net/pricing/F765353.json" \
-  > src/aichemy_pricing/tests/data/fluorochem_F765353.json
-test -s src/aichemy_pricing/tests/data/fluorochem_F765353.json && echo OK
+uv run python -m aichemy_pricing.tests.data._capture \
+  --url https://fluorochemcouk.blob.core.windows.net/pricing/F765353.json \
+  --out src/aichemy_pricing/tests/data/fluorochem_F765353.json \
+  --min-size 1000 \
+  --required-marker 'Base Price' \
+  --required-marker 'F765353'
 ```
+
+Validation per Sub-Plan A Task A7: refuses to write the fixture unless status==200, body ≥ 1 KB, the JSON contains `"Base Price"`, and the SKU appears verbatim.
 
 - [ ] **Step 2: Failing tests**
 
@@ -337,11 +342,14 @@ git commit -m "feat(pricing): FluorochemVendor — Azure-blob JSON (corrected sc
 - [ ] **Step 1: Capture fixture**
 
 ```bash
-curl -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
-  -sL "https://www.molbase.com/cas/50-78-2.html" \
-  > src/aichemy_pricing/tests/data/molbase_aspirin.html
-test -s src/aichemy_pricing/tests/data/molbase_aspirin.html && echo OK
+uv run python -m aichemy_pricing.tests.data._capture \
+  --url https://www.molbase.com/cas/50-78-2.html \
+  --out src/aichemy_pricing/tests/data/molbase_aspirin.html \
+  --min-size 5000 \
+  --required-marker 'price'
 ```
+
+Validation per Sub-Plan A Task A7: confirms the page actually rendered (the corrected URL form per CLAIM-18 returns SSR HTML containing the literal word `price`).
 
 - [ ] **Step 2: Failing tests**
 
@@ -541,10 +549,12 @@ git commit -m "feat(pricing): MolbaseVendor — corrected /cas/{CAS}.html URL"
 - [ ] **Step 1: Capture fixture**
 
 ```bash
-curl -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
-  -sL "https://www.tocris.com/products/jw-642_4906" \
-  > src/aichemy_pricing/tests/data/tocris_jw642.html
-test -s src/aichemy_pricing/tests/data/tocris_jw642.html && echo OK
+uv run python -m aichemy_pricing.tests.data._capture \
+  --url https://www.tocris.com/products/jw-642_4906 \
+  --out src/aichemy_pricing/tests/data/tocris_jw642.html \
+  --min-size 5000 \
+  --required-marker 'JW 642' \
+  --required-marker '$'
 ```
 
 - [ ] **Step 2: Failing tests**
@@ -732,3 +742,5 @@ Expected: Success.
 **Placeholder scan:** No "TBD" / "implement later". One nuance: the regex-based HTML parsers in Molbase and Tocris are deliberately narrow — they assume the simplest visible (price, pack) pair, not a full table parse. If a future regression shows these parsers missing valid prices, the fix is to widen the regex; the scope of this sub-plan is "first verified price returned per SKU", not "best price across all packs/suppliers".
 
 **Type consistency:** All three vendors implement `lookup(ref: VendorRef) -> PriceQuote | None` with `name: str` attribute, satisfying the `PriceLookup` protocol from sub-plan A. All three return `currency="USD"` or `"GBP"` per their actual vendor pages, which are members of the `Currency` literal type defined in sub-plan A.
+
+**Currency-handling audit (Revision 14):** Hard-coded currencies match each vendor's real pages — Fluorochem GBP (per CLAIM-01 JSON's `Pricing.GBP.Base Price`; the same JSON also exposes `Pricing.EUR.Base Price` so a future revision can offer EUR as an alternative for institutional EU buyers), Tocris USD (CLAIM-25), Molbase reads currency dynamically from the page via `_TOKEN_TO_CURRENCY` (Revision 3) so Chinese-supplier listings yield CNY rather than mis-labeled USD. The FX-table completeness test in sub-plan E (Revision 10) prevents new `Currency` literal members from silently dropping quotes.

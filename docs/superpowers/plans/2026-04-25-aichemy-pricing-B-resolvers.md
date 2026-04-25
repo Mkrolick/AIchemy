@@ -207,17 +207,29 @@ git commit -m "feat(pricing): streaming SDF parser shared by resolvers"
 
 - [ ] **Step 1: Capture fixture (one-time)**
 
+The PubChem Substance SDFs are gzipped and large (~60 MB compressed per shard). We don't use the shared `_capture.py` helper here because it loads the entire body into memory before validation; a streaming pipeline is a better fit. The pipeline below downloads only as much as awk needs, then validates the result.
+
 ```bash
 mkdir -p src/aichemy_pricing/tests/data
-# Snip the first 10 records from the real first-tranche SDF.
-curl -sL "https://ftp.ncbi.nlm.nih.gov/pubchem/Substance/CURRENT-Full/SDF/Substance_000000001_000500000.sdf.gz" \
+OUT=src/aichemy_pricing/tests/data/pubchem_sample.sdf
+curl -sL --fail "https://ftp.ncbi.nlm.nih.gov/pubchem/Substance/CURRENT-Full/SDF/Substance_000000001_000500000.sdf.gz" \
   | gunzip \
   | awk 'BEGIN{n=0} /^\$\$\$\$/{n++; print; if (n>=10) exit; next} {print}' \
-  > src/aichemy_pricing/tests/data/pubchem_sample.sdf
-ls -la src/aichemy_pricing/tests/data/pubchem_sample.sdf
+  > "$OUT"
+
+# Validate: must have ≥10 record terminators and the expected vendor-source tag.
+RECS=$(grep -c '^\$\$\$\$' "$OUT" || true)
+HAS_DSN=$(grep -c '^> <PUBCHEM_EXT_DATASOURCE_NAME>' "$OUT" || true)
+SIZE=$(wc -c < "$OUT")
+if [ "$RECS" -lt 10 ] || [ "$HAS_DSN" -lt 1 ] || [ "$SIZE" -lt 5000 ]; then
+  echo "FIXTURE CAPTURE FAILED: records=$RECS, source-tagged=$HAS_DSN, bytes=$SIZE" >&2
+  rm -f "$OUT"
+  exit 1
+fi
+echo "OK: $RECS records, $HAS_DSN source-tagged, $SIZE bytes"
 ```
 
-Expected: a non-empty file ~30–80 KB.
+Expected: `OK: 10 records, ≥1 source-tagged, ≥5000 bytes`. If this fails, the PubChem dump format may have changed (rare) or your network was interrupted mid-stream — retry.
 
 - [ ] **Step 2: Failing tests**
 

@@ -488,16 +488,21 @@ def lookup(
 @app.command()
 def chain(
     sku: str = typer.Argument(..., help="SKU to try across all vendors in order"),
-    cache_path: Path = typer.Option(
-        Path(".aichemy_pricing_cache.sqlite"), "--cache",
-    ),
 ) -> None:
-    """Try the default tiered chain on a SKU. SKU format depends on which
-    vendor it matches; if you don't know, use `resolve` instead."""
-    chain = build_default_chain(cache_path=cache_path)
-    for member in chain.inner.members:  # type: ignore[attr-defined]
-        ref = VendorRef(vendor=member.name, sku=sku)
-        q = member.lookup(ref)
+    """Try every vendor on a SKU in registration order, print the first hit.
+
+    SKU format is vendor-specific; if you don't know which vendor a chemical
+    matches, use `resolve` instead with an InChIKey + PubChem SDF directory.
+    No cache by design — this command is for ad-hoc debugging, not pipeline
+    use; use the `aichemy_pricing` library directly for cached lookups.
+    """
+    for vendor_name, vendor_cls in _VENDORS.items():
+        ref = VendorRef(vendor=vendor_name, sku=sku)
+        try:
+            q = vendor_cls().lookup(ref)
+        except Exception as exc:  # noqa: BLE001 — CLI debug; surface and continue
+            typer.echo(f"{vendor_name}: error — {exc}", err=True)
+            continue
         if q is not None:
             typer.echo(f"{q.vendor}: {q.price} {q.currency} / {q.pack_size_g} g")
             raise typer.Exit(0)
@@ -681,7 +686,7 @@ prices:
 
 (No model-level config validation is required for v1 — keep it as a free-form sub-key. Sub-plan F can add the pydantic model later.)
 
-- [ ] **Step 4: Integration test**
+- [ ] **Step 4: Integration test (+ FX-table completeness assertion)**
 
 ```python
 # tests/integration/test_pricing_package_integration.py
@@ -693,6 +698,7 @@ and a synthetic SDF that maps a known InChIKey to F765353.
 from __future__ import annotations
 
 import json
+import typing
 from pathlib import Path
 
 import httpx
@@ -700,6 +706,24 @@ import pytest
 
 # Skip at collection time if pricing extra isn't installed.
 pytest.importorskip("aichemy_pricing")
+
+
+def test_fx_table_covers_every_currency_literal() -> None:
+    """The `_InchikeyAdapter` returns None when a quote arrives in a currency
+    missing from the FX table, with a warning log. That's a silent yield drop
+    waiting to happen if anyone adds a new `Currency` literal without also
+    extending the FX table. Lock that invariant in.
+    """
+    from aichemy.preprocessing.augment.prices import _FX_TO_USD_AS_OF_2026_04_25
+    from aichemy_pricing.types import Currency
+
+    declared_currencies = set(typing.get_args(Currency))
+    fx_currencies = set(_FX_TO_USD_AS_OF_2026_04_25)
+    missing = declared_currencies - fx_currencies
+    assert not missing, (
+        f"Currency literal members missing from FX table: {missing}. "
+        f"Either add an FX rate or shrink the Currency literal."
+    )
 
 
 def test_aichemy_pipeline_can_use_aichemy_pricing_backend(tmp_path, monkeypatch) -> None:
@@ -716,7 +740,7 @@ def test_aichemy_pipeline_can_use_aichemy_pricing_backend(tmp_path, monkeypatch)
     monkeypatch.setattr(httpx.Client, "send", mock_send)
 
     chain = build_default_chain(cache_path=tmp_path / "c.sqlite")
-    quote = chain.inner.lookup(VendorRef(vendor="fluorochem", sku="F765353-1G"))  # type: ignore[attr-defined]
+    quote = chain.lookup(VendorRef(vendor="fluorochem", sku="F765353-1G"))
     assert quote is not None
     assert quote.currency == "GBP"
 ```
@@ -862,8 +886,8 @@ git commit --allow-empty -m "test(pricing): end-to-end verification — all offl
 | `test_lookup_by_inchikey.py` | 3 | First priced vendor wins; no resolver hits → None; no chain hits → None |
 | `test_build_default_chain.py` | 2 | Returns `CachedPriceLookup(ChainedPriceLookup(...))`; excluded vendors absent |
 | `test_cli.py` | 5 | `--version`; unknown vendor → exit 2; lookup dispatch; `--json` flag; no-quote → exit 1 |
-| `tests/integration/test_pricing_package_integration.py` | 1 | Pipeline backend round-trips a Fluorochem fixture quote |
-| **Total** | **11** | All offline; no `live` markers in this sub-plan. |
+| `tests/integration/test_pricing_package_integration.py` | 2 | FX-table covers every Currency literal; pipeline backend round-trips a Fluorochem fixture quote |
+| **Total** | **12** | All offline; no `live` markers in this sub-plan. |
 
 **Cumulative test counts across all sub-plans:**
 
@@ -873,8 +897,8 @@ git commit --allow-empty -m "test(pricing): end-to-end verification — all offl
 | B | 16 | 1 |
 | C | 14 | 3 |
 | D | 16 | 4 |
-| E | 11 | 0 |
-| **Total** | **77** | **8** |
+| E | 12 | 0 |
+| **Total** | **78** | **8** |
 
 **All tests:**
 ```bash

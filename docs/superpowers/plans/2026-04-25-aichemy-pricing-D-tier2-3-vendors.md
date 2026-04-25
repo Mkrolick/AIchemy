@@ -355,11 +355,15 @@ git commit -m "feat(pricing): CaymanVendor via discovered XHR JSON endpoint"
 - [ ] **Step 1: Capture fixture**
 
 ```bash
-curl -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
-  -sL "https://www.scbt.com/p/aspirin-50-78-2" \
-  > src/aichemy_pricing/tests/data/chemcruz_aspirin.html
-test -s src/aichemy_pricing/tests/data/chemcruz_aspirin.html && echo OK
+uv run python -m aichemy_pricing.tests.data._capture \
+  --url https://www.scbt.com/p/aspirin-50-78-2 \
+  --out src/aichemy_pricing/tests/data/chemcruz_aspirin.html \
+  --min-size 5000 \
+  --required-marker 'Aspirin' \
+  --required-marker '50-78-2'
 ```
+
+Per CLAIM-17 ChemCruz uses moderate Cloudflare; the helper's BAD_MARKERS list catches the JS-challenge case. If it fails, retry from a residential IP.
 
 - [ ] **Step 2: Failing tests**
 
@@ -498,19 +502,18 @@ git commit -m "feat(pricing): ChemCruzVendor — SSR HTML scrape"
 - Create: `src/aichemy_pricing/tests/test_vendors_medchemexpress.py`
 - Capture: `src/aichemy_pricing/tests/data/mce_acetyl_coa.html`
 
-- [ ] **Step 1: Capture fixture using curl_cffi**
+- [ ] **Step 1: Capture fixture using curl_cffi (validated)**
 
 ```bash
-uv run python -c "
-from curl_cffi import requests
-r = requests.get('https://www.medchemexpress.com/acetyl-coenzyme-a.html', impersonate='chrome124')
-open('src/aichemy_pricing/tests/data/mce_acetyl_coa.html', 'wb').write(r.content)
-print('saved', len(r.content), 'bytes; status', r.status_code)
-"
-test -s src/aichemy_pricing/tests/data/mce_acetyl_coa.html && echo OK
+uv run python -m aichemy_pricing.tests.data._capture \
+  --url https://www.medchemexpress.com/acetyl-coenzyme-a.html \
+  --out src/aichemy_pricing/tests/data/mce_acetyl_coa.html \
+  --client cf --impersonate chrome124 \
+  --min-size 5000 \
+  --required-marker 'Acetyl'
 ```
 
-If the curl_cffi capture returns < 5 KB or shows a "Cloudflare" challenge page in the body, the impersonation token may need updating (`chrome116`, `chrome120`, `chrome124`, `chrome131` are all options) — try the next-newer one.
+The helper (Sub-Plan A Task A7) refuses to write the fixture if Cloudflare returned a challenge page — its BAD_MARKERS list covers `Just a moment...`, `cf-browser-verification`, `challenge-platform`, `Checking your browser`, and `Enable JavaScript and cookies`. If the helper fails, retry with a newer `--impersonate` token (`chrome116`, `chrome120`, `chrome131`) — Chrome's TLS fingerprint rotates with each major release.
 
 - [ ] **Step 2: Failing tests**
 
