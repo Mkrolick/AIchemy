@@ -521,19 +521,34 @@ git commit -m "feat(pricing): EnamineSdfResolver — InChIKey → EN300-* SKU"
 - Create: `src/aichemy_pricing/tests/test_resolvers_zinc.py`
 - Capture: `src/aichemy_pricing/tests/data/zinc_tranche_sample.smi`
 
-- [ ] **Step 1: Capture fixture**
+- [ ] **Step 1: Capture fixture (via shared `_capture.py` validator)**
+
+The previous version of this step used `curl -sL ... | head -50 > foo.smi || echo` — that pipeline silently writes a zero-byte file on 404 (curl returns 0 without `--fail`; redirection always succeeds; the `||` fallback never fires). Combined with the live test's `if size == 0: skip` predicate, a broken capture would silently mask a parser-format mismatch. Route through the shared validator instead.
 
 ```bash
-# A small ZINC tranche file (one of the smaller MW × logP cells).
-# Names are 4 letters: e.g. ABAA, BAAB, etc. Pick one and grab the first 50 lines.
-curl -sL "https://files.docking.org/2D/AB/AAAA.smi" 2>/dev/null \
-  | head -50 \
-  > src/aichemy_pricing/tests/data/zinc_tranche_sample.smi || \
-  echo "Tranche file format may vary - capture manually from the directory listing"
-ls -la src/aichemy_pricing/tests/data/zinc_tranche_sample.smi
+# Step 1a: confirm a tranche path exists via the directory browser:
+curl -sIL "https://files.docking.org/2D/" | head -3
+# Open https://files.docking.org/2D/ in a browser, pick a current 4-letter
+# cohort (e.g. AB, BC, ...). Replace <COHORT>/<NAME>.smi below with what you see.
+
+# Step 1b: capture with validation. Required markers: a tab character
+# (the resolver only handles tab-separated rows) and a 'ZINC' substring
+# (every ZINC tranche has at least one ZINCnnn id; absence means the
+# response was a 404 HTML page, not the .smi file).
+uv run python -m aichemy_pricing.tests.data._capture \
+  --url "https://files.docking.org/2D/<COHORT>/<NAME>.smi" \
+  --out src/aichemy_pricing/tests/data/zinc_tranche_sample.smi \
+  --min-size 5000 \
+  --required-marker $'\t' \
+  --required-marker ZINC
+# Then truncate to the first 50 lines (the helper writes the whole body):
+head -50 src/aichemy_pricing/tests/data/zinc_tranche_sample.smi \
+  > src/aichemy_pricing/tests/data/zinc_tranche_sample.smi.head \
+  && mv src/aichemy_pricing/tests/data/zinc_tranche_sample.smi.head \
+        src/aichemy_pricing/tests/data/zinc_tranche_sample.smi
 ```
 
-If the URL above returns 404, browse `https://files.docking.org/2D/` to find a current tranche path and adapt. The tranche file contains rows like:
+The `_capture.py` validator (Sub-Plan A Task A7) refuses to write the fixture if the response 404s, returns a redirect-page, or lacks the tab/ZINC markers — silent zero-byte and HTML-404 fixtures are no longer possible. The tranche file contains rows like:
 ```
 SMILES   zinc_id    [vendor:supplier_code ...]
 ```

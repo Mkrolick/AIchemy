@@ -333,7 +333,86 @@ def test_cayman_live_prostaglandin_e2() -> None:
     assert quote.price > 0
 ```
 
-- [ ] **Step 2: Implement** — same shape as `EnamineVendor`, swap URL pattern for the discovered one. Hard-code currency="USD" (Cayman is USD-only on the US site).
+- [ ] **Step 2: Implement (verbatim fail-loud guard, mirroring Enamine)**
+
+Don't just "follow the same shape" — ship the exact same placeholder-guard pattern so the same silent-failure mode that Revision 6 closed for Enamine cannot reappear in Cayman. After D2.0 records the discovered URL, overwrite `_API_URL` and the constructor guard automatically passes.
+
+```python
+# src/aichemy_pricing/vendors/cayman.py
+"""Cayman Chemical — pricing via discovered XHR JSON endpoint.
+
+Per CLAIM-14 (VERIFIED): user-facing URL `caymanchem.com/product/{itemID}/{slug}`
+returns partial-SSR HTML (title + CAS only); pricing must be fetched from the
+JSON endpoint the React/JS layer calls after page load. SKU here is the bare
+itemID (slug omitted).
+
+DISCOVERED ENDPOINT (record verbatim from DevTools during D2.0):
+  URL pattern: <FILL FROM DEVTOOLS>          e.g. https://www.caymanchem.com/api/products/{sku}
+  Method:      GET
+  Auth:        none observed
+  Currency:    USD only on the US site
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import httpx
+
+from aichemy_pricing.http import make_plain_client
+from aichemy_pricing.types import PriceQuote, VendorRef
+from aichemy_pricing.vendors._common import pack_size_to_grams
+
+# MUST be replaced during D2.0 with the real discovered endpoint.
+_PLACEHOLDER_API_URL = "https://www.caymanchem.com/api/products/{sku}"
+_API_URL = _PLACEHOLDER_API_URL  # ⚠️ overwrite after D2.0
+
+
+class CaymanVendor:
+    name = "cayman"
+
+    def __init__(self, client: httpx.Client | None = None) -> None:
+        if _API_URL == _PLACEHOLDER_API_URL:
+            # Fail loud rather than silently returning None for every lookup.
+            # Mirrors EnamineVendor's Revision 6 guard pattern verbatim.
+            raise NotImplementedError(
+                "CaymanVendor: _API_URL is still the discovery placeholder. "
+                "Run Task D2.0 to identify the real XHR endpoint via DevTools, "
+                "then overwrite _API_URL with the discovered pattern."
+            )
+        self._client = client or make_plain_client()
+
+    def lookup(self, ref: VendorRef) -> PriceQuote | None:
+        url = _API_URL.format(sku=ref.sku)
+        resp = self._client.get(url, headers={"Accept": "application/json"})
+        if resp.status_code != 200:
+            return None
+        try:
+            body = resp.json()
+        except ValueError:
+            return None
+        # Adjust field paths after D2.0 records the actual JSON shape.
+        packs = body.get("packs") or body.get("Packs") or []
+        if not packs:
+            return None
+        pack = packs[0]
+        try:
+            size = float(pack["size"])
+            unit = str(pack["unit"])
+            price = float(pack["price"])
+        except (KeyError, ValueError, TypeError):
+            return None
+        return PriceQuote(
+            vendor=self.name,
+            sku=ref.sku,
+            price=price,
+            currency="USD",  # Cayman is USD-only on the US site
+            pack_size_g=pack_size_to_grams(size, unit),
+            fetched_at=datetime.now(timezone.utc),
+            raw=pack,
+        )
+```
+
+`build_default_chain` (Sub-Plan E, Revision 16) catches the `NotImplementedError` from un-discovered placeholder vendors and skips them with a warning, so committing this file before D2.0 is complete does not break the package factory or its tests.
 
 - [ ] **Step 3: Re-export, run, commit.**
 
@@ -608,7 +687,7 @@ from datetime import datetime, timezone
 
 from aichemy_pricing.http import make_cf_client
 from aichemy_pricing.types import PriceQuote, VendorRef
-from aichemy_pricing.vendors._common import pack_size_to_grams
+from aichemy_pricing.vendors._common import pack_size_to_grams, strip_molarity_tokens
 
 _PACK_PRICE_RE = re.compile(
     r"([\d.]+)\s*(mg|g|kg|µg|ug|mcg)\b[^$]{0,200}\$\s*([\d,]+(?:\.\d+)?)",
@@ -627,7 +706,10 @@ class MedChemExpressVendor:
         resp = self._client.get(url)
         if resp.status_code != 200:
             return None
-        m = _PACK_PRICE_RE.search(resp.text)
+        # Strip MW / molarity tokens before regex; on real MCE pages the
+        # 200-char window between MW prose and the pack-price block is layout-
+        # dependent (mobile templates compact it within range). See Revision 18.
+        m = _PACK_PRICE_RE.search(strip_molarity_tokens(resp.text))
         if not m:
             return None
         try:

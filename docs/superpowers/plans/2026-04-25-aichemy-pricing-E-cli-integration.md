@@ -234,6 +234,18 @@ __all__ = [
     "EnamineVendor", "CaymanVendor", "ChemCruzVendor", "MedChemExpressVendor",
     "LookupByInchikey",
     "build_default_chain",
+    "_DEFAULT_VENDOR_CLASSES",  # mutable for tests; not part of stable API
+]
+
+
+_DEFAULT_VENDOR_CLASSES: list[type] = [
+    FluorochemVendor,
+    MolbaseVendor,
+    TocrisVendor,
+    EnamineVendor,
+    CaymanVendor,
+    ChemCruzVendor,
+    MedChemExpressVendor,
 ]
 
 
@@ -245,17 +257,27 @@ def build_default_chain(cache_path: Path | str) -> CachedPriceLookup:
     last because curl_cffi setup has the highest baseline cost per call.
 
     Excludes Sigma-Aldrich, TCI, Apollo, and BLD per the verification report.
+
+    **Placeholder-aware construction** (Revision 16): Tier-2 vendors that
+    require manual DevTools discovery (Enamine `_API_URL`, Cayman `_API_URL`)
+    raise `NotImplementedError` from `__init__` until a human completes the
+    discovery step. We catch that here so the chain factory remains callable
+    even when one or more discovery placeholders are unfilled — production
+    degrades gracefully (vendor skipped + warning logged), and E2 unit tests
+    can run without the out-of-band manual work.
     """
-    inner = ChainedPriceLookup([
-        FluorochemVendor(),
-        MolbaseVendor(),
-        TocrisVendor(),
-        EnamineVendor(),
-        CaymanVendor(),
-        ChemCruzVendor(),
-        MedChemExpressVendor(),
-    ])
-    return CachedPriceLookup(inner, db_path=cache_path, ttl_days=30)
+    import logging
+    log = logging.getLogger(__name__)
+    members: list = []
+    for cls in _DEFAULT_VENDOR_CLASSES:
+        try:
+            members.append(cls())
+        except NotImplementedError as exc:
+            log.warning(
+                "build_default_chain: skipping %s — %s",
+                cls.__name__, exc,
+            )
+    return CachedPriceLookup(ChainedPriceLookup(members), db_path=cache_path, ttl_days=30)
 ```
 
 - [ ] **Step 2: Failing test for `build_default_chain`**
@@ -281,9 +303,39 @@ def test_build_default_chain_omits_apollo_sigma_tci_bld(tmp_path) -> None:
     vendor_names = {m.name for m in chain.inner.members}
     excluded = {"apollo", "sigma", "sigma-aldrich", "tci", "bld", "bldpharm"}
     assert vendor_names.isdisjoint(excluded)
-    # And confirm at least the verified-working vendors ARE in there:
-    assert {"fluorochem", "molbase", "tocris", "enamine", "cayman", "chemcruz",
+    # The verified-working Tier 1 vendors must always be present (no placeholder).
+    # Tier-2 vendors with discovery placeholders (enamine, cayman) MAY be absent
+    # if `_API_URL` hasn't been filled in yet — Revision 16 makes the chain
+    # factory skip those rather than crash. The `excluded` invariant remains
+    # the load-bearing check.
+    assert {"fluorochem", "molbase", "tocris", "chemcruz",
             "medchemexpress"}.issubset(vendor_names)
+
+
+def test_build_default_chain_skips_placeholder_vendors_gracefully(tmp_path, monkeypatch, caplog) -> None:
+    """If a Tier-2/3 vendor's __init__ raises NotImplementedError (the
+    placeholder guard from Revision 6), the chain factory must catch it,
+    log a warning, and continue — not crash. Mirrors the production behavior
+    where `augment_prices` keeps running even with one undiscovered vendor."""
+    import logging
+    from aichemy_pricing import build_default_chain
+    from aichemy_pricing.vendors.fluorochem import FluorochemVendor
+
+    class _Boom(FluorochemVendor):
+        name = "boom"
+        def __init__(self):  # noqa: D401 — test-only placeholder simulation
+            raise NotImplementedError("simulated discovery placeholder")
+
+    # Patch the class list to include _Boom in addition to the real vendors.
+    from aichemy_pricing import __init__ as pkg
+    monkeypatch.setattr(pkg, "_DEFAULT_VENDOR_CLASSES",
+                        [_Boom] + pkg._DEFAULT_VENDOR_CLASSES)
+    with caplog.at_level(logging.WARNING):
+        chain = build_default_chain(cache_path=tmp_path / "c.sqlite")
+    # _Boom must be absent from the chain.
+    assert "boom" not in {m.name for m in chain.inner.members}
+    # And we must have logged the skip.
+    assert any("simulated discovery placeholder" in r.message for r in caplog.records)
 ```
 
 - [ ] **Step 3: Run; pass**
@@ -884,21 +936,21 @@ git commit --allow-empty -m "test(pricing): end-to-end verification — all offl
 | Test file | Test count | Notes |
 |---|---:|---|
 | `test_lookup_by_inchikey.py` | 3 | First priced vendor wins; no resolver hits → None; no chain hits → None |
-| `test_build_default_chain.py` | 2 | Returns `CachedPriceLookup(ChainedPriceLookup(...))`; excluded vendors absent |
+| `test_build_default_chain.py` | 3 | Returns `CachedPriceLookup(ChainedPriceLookup(...))`; excluded vendors absent; **placeholder vendors skipped with warning (Revision 16)** |
 | `test_cli.py` | 5 | `--version`; unknown vendor → exit 2; lookup dispatch; `--json` flag; no-quote → exit 1 |
 | `tests/integration/test_pricing_package_integration.py` | 2 | FX-table covers every Currency literal; pipeline backend round-trips a Fluorochem fixture quote |
-| **Total** | **12** | All offline; no `live` markers in this sub-plan. |
+| **Total** | **13** | All offline; no `live` markers in this sub-plan. |
 
 **Cumulative test counts across all sub-plans:**
 
 | Sub-plan | Offline | Live |
 |---|---:|---:|
-| A | 20 | 0 |
+| A | 21 | 0 |
 | B | 16 | 1 |
-| C | 14 | 3 |
+| C | 15 | 3 |
 | D | 16 | 4 |
-| E | 12 | 0 |
-| **Total** | **78** | **8** |
+| E | 13 | 0 |
+| **Total** | **81** | **8** |
 
 **All tests:**
 ```bash

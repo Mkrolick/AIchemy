@@ -71,6 +71,25 @@ UNIT_TO_GRAMS: dict[str, float] = {
 def pack_size_to_grams(size: float, unit: str) -> float:
     """Convert a (size, unit) pair to grams. Raises KeyError on unknown unit."""
     return size * UNIT_TO_GRAMS[unit.lower()]
+
+
+# Strips molecular-weight / molarity tokens like "308.4 g/mol", "5 mg/mL",
+# "1 mg/kg" so vendor regex parsers don't mistake them for pack sizes.
+# The first \b(g|mg|kg)\b that gets paired with the first $price on a real
+# product page is otherwise the molecular weight, producing prices off by
+# 3+ orders of magnitude that then get cached for 30 days.
+import re as _re  # noqa: E402 — keep with the helper it serves
+
+_MW_TOKEN_RE = _re.compile(
+    r"\b[\d.]+\s*(?:mg|g|kg|µg|ug|mcg)\s*/\s*(?:mol|l|kg|ml)\b",
+    _re.I,
+)
+
+
+def strip_molarity_tokens(text: str) -> str:
+    """Remove `<num> <unit>/<denom>` runs (g/mol, mg/mL, mg/kg, etc.) so they
+    don't poison subsequent pack-size regex matches."""
+    return _MW_TOKEN_RE.sub("", text)
 ```
 
 - [ ] **Step 3: Commit**
@@ -463,7 +482,7 @@ import httpx
 
 from aichemy_pricing.http import make_plain_client
 from aichemy_pricing.types import Currency, PriceQuote, VendorRef
-from aichemy_pricing.vendors._common import pack_size_to_grams
+from aichemy_pricing.vendors._common import pack_size_to_grams, strip_molarity_tokens
 
 # Capture group 1 = currency token; group 2 = numeric price.
 _PRICE_RE = re.compile(r"(USD|US\$|\$|¥|CNY|RMB|EUR|€|GBP|£)\s*([\d,.]+)", re.I)
@@ -492,7 +511,7 @@ class MolbaseVendor:
         resp = self._client.get(url)
         if resp.status_code != 200:
             return None
-        text = resp.text
+        text = strip_molarity_tokens(resp.text)
         m_price = _PRICE_RE.search(text)
         m_pack = _PACK_RE.search(text)
         if not (m_price and m_pack):
@@ -597,6 +616,32 @@ def test_tocris_extracts_price_from_synthetic_html(monkeypatch) -> None:
     assert quote.price > 0
 
 
+def test_tocris_does_not_match_molecular_weight_as_pack_size(monkeypatch) -> None:
+    """Real product pages render molecular weight ('Molecular Weight: 308.4 g/mol')
+    BEFORE the pack-prices block. Without the molarity-token stripper in
+    `_common.strip_molarity_tokens`, the regex pairs `308.4 g` with the first
+    $price and emits a price ~3 orders of magnitude wrong (e.g. $0.535/g
+    instead of $16,500/g for a 10mg pack at $165). Lock that bug closed."""
+    body = (
+        b"<html><head><title>JW 642 | Tocris Bioscience</title></head>"
+        b"<body>"
+        b"<div class='properties'>Molecular Weight: 308.4 g/mol</div>"
+        b"<div class='molarity'>Stock concentration: 5 mg/mL in DMSO</div>"
+        b"<table class='pack-prices'>"
+        b"<tr><td>10mg</td><td>$165</td></tr>"
+        b"<tr><td>50mg</td><td>$650</td></tr>"
+        b"</table></body></html>"
+    )
+    _patch_http(monkeypatch, status=200, body=body)
+    quote = TocrisVendor().lookup(VendorRef(vendor="tocris", sku="jw-642_4906"))
+    assert quote is not None
+    # The 10mg pack: pack_size_g must be 0.01 (mg→g), NOT 308.4 (the MW).
+    assert quote.pack_size_g == 0.01, (
+        f"got pack_size_g={quote.pack_size_g}; molecular-weight token leaked into pack-size match"
+    )
+    assert quote.price == 165.0
+
+
 def test_tocris_returns_none_on_404(monkeypatch) -> None:
     _patch_http(monkeypatch, status=404)
     assert TocrisVendor().lookup(VendorRef(vendor="tocris", sku="nope_0000")) is None
@@ -647,7 +692,7 @@ import httpx
 
 from aichemy_pricing.http import make_plain_client
 from aichemy_pricing.types import PriceQuote, VendorRef
-from aichemy_pricing.vendors._common import pack_size_to_grams
+from aichemy_pricing.vendors._common import pack_size_to_grams, strip_molarity_tokens
 
 _PACK_PRICE_RE = re.compile(
     r"([\d.]+)\s*(mg|g|kg|µg|ug|mcg)\b[^$]*\$\s*([\d,]+(?:\.\d+)?)",
@@ -666,7 +711,10 @@ class TocrisVendor:
         resp = self._client.get(url)
         if resp.status_code != 200:
             return None
-        match = _PACK_PRICE_RE.search(resp.text)
+        # Strip MW / molarity tokens (g/mol, mg/mL) before regex search — without
+        # this, the first "Molecular Weight: 308.4 g/mol" on the page is paired
+        # with the first $price, producing a price ~3 orders of magnitude wrong.
+        match = _PACK_PRICE_RE.search(strip_molarity_tokens(resp.text))
         if not match:
             return None
         try:
@@ -714,8 +762,8 @@ git commit -m "feat(pricing): TocrisVendor — SSR HTML pack-price extraction"
 |---|---:|---:|---|
 | `test_vendors_fluorochem.py` | 5 | 1 | Real-fixture parse; kg unit; 404; missing pricing block; product-only fallback; (live) F765353 |
 | `test_vendors_molbase.py` | 5 | 1 | Correct URL builder; 404; USD parse; **CNY parse (Chinese supplier)**; no-price; (live) aspirin |
-| `test_vendors_tocris.py` | 4 | 1 | Synthetic-HTML parse; 404; no-price; correct URL; (live) JW 642 |
-| **Total** | **14** | **3** | All offline tests run in <2s. Live tests require `-m live` flag. |
+| `test_vendors_tocris.py` | 5 | 1 | Synthetic-HTML parse; 404; no-price; correct URL; **MW-token defense (Revision 18)**; (live) JW 642 |
+| **Total** | **15** | **3** | All offline tests run in <2s. Live tests require `-m live` flag. |
 
 **All-tests command (offline only):**
 ```bash

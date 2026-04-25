@@ -84,20 +84,25 @@ In `[project.scripts]`:
 aichemy-price = "aichemy_pricing.cli:app"
 ```
 
-- [ ] **Step 4: Add a dev extras line for testing this package** (if `dev` extra exists, append `pytest-httpx>=0.30` to it; else create one):
+- [ ] **Step 4: Verify dev tooling (no edit required)**
+
+The repo already declares dev tooling under PEP 735 `[dependency-groups]` (NOT `[project.optional-dependencies]`):
 
 ```toml
-[project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-cov", "pytest-httpx>=0.30", "ruff>=0.4", "mypy>=1.10"]
+[dependency-groups]
+dev = ["pytest>=8.0", "pytest-cov", "pytest-httpx>=0.36", "ruff>=0.4", "mypy>=1.10",
+       "pre-commit", "nbstripout", "dvc>=3.0"]
 ```
+
+`pytest-httpx>=0.36` is already present and is **newer** than what this sub-plan needs — do NOT add a parallel `[project.optional-dependencies] dev`. That would create two competing `dev` definitions, drop pre-commit/nbstripout/dvc from the synced env, and downgrade pytest-httpx.
 
 - [ ] **Step 5: Sync**
 
 ```bash
-uv sync --extra pricing --extra dev
+uv sync --extra pricing --group dev
 ```
 
-Expected: clean sync. `aichemy-price` will fail with ImportError because `cli.py` is empty — that is correct for now.
+Note: `--group dev` (PEP 735 group), not `--extra dev`. Expected: clean sync. `aichemy-price` will fail with ImportError because `cli.py` is empty — that is correct for now.
 
 - [ ] **Step 6: Commit**
 
@@ -170,8 +175,21 @@ DATA = pathlib.Path(__file__).parent / "data"
 
 # `-m live` (or `-m "live or X"`) opts the user IN to live tests.
 # `-m "not live"` (or default no `-m`) opts them OUT.
-# The negative-lookbehind regex matches "live" as a whole word NOT preceded by "not ".
+# The negative-lookbehind regex requires the literal 4 chars "not " before "live"
+# to recognize the OPT-OUT case — but pytest accepts equivalent forms like
+# "not (live)", "not(live)", or "not  live" (double space) that defeat the
+# fixed-width lookbehind. We normalize the markexpr first: strip parentheses
+# and collapse whitespace, so all of those canonicalize to "not live" before
+# the regex runs and route correctly through the lookbehind.
 _LIVE_OPT_IN = re.compile(r"(?<!not )\blive\b")
+
+
+def _normalize_markexpr(raw: str) -> str:
+    # Replace parens with spaces; pytest's marker grammar uses parens only for
+    # grouping, never as part of a marker name, so this is safe.
+    no_parens = raw.replace("(", " ").replace(")", " ")
+    # Collapse runs of whitespace to a single space.
+    return re.sub(r"\s+", " ", no_parens).strip()
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -179,7 +197,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    markexpr = config.option.markexpr or ""
+    markexpr = _normalize_markexpr(config.option.markexpr or "")
     if _LIVE_OPT_IN.search(markexpr):
         return  # caller asked for live; don't filter
     skip_live = pytest.mark.skip(reason="live network test; pass -m live to enable")
@@ -571,6 +589,27 @@ def test_chain_returns_none_when_all_miss() -> None:
 def test_chain_with_empty_members_returns_none() -> None:
     chain = ChainedPriceLookup([])
     assert chain.lookup(VendorRef(vendor="x", sku="y")) is None
+
+
+def test_chain_swallows_per_member_exceptions_and_continues() -> None:
+    """Mirrors the existing aichemy.preprocessing.augment.prices.ChainedPriceLookup
+    contract: 'one source failing shouldn't kill the chain'. A transient
+    httpx.ConnectError or similar from any vendor must not abort the dict-comp
+    in `augment_prices` — the chain logs it and falls through to the next
+    member."""
+    class _Boom:
+        name = "boom"
+        calls = 0
+        def lookup(self, ref):
+            self.__class__.calls += 1
+            raise RuntimeError("simulated transient failure")
+
+    boom = _Boom()
+    survivor = _Stub("survivor", _q("survivor"))
+    chain = ChainedPriceLookup([boom, survivor])
+    out = chain.lookup(VendorRef(vendor="x", sku="y"))
+    assert out is not None and out.vendor == "survivor"
+    assert _Boom.calls == 1 and survivor.calls == 1
 ```
 
 - [ ] **Step 2: Failing cache tests**
@@ -657,6 +696,7 @@ def test_cache_round_trips_pricequote_fields(tmp_path) -> None:
 """ChainedPriceLookup falls through; CachedPriceLookup memoizes via SQLite."""
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -664,9 +704,18 @@ from pathlib import Path
 from aichemy_pricing.protocol import PriceLookup
 from aichemy_pricing.types import PriceQuote, VendorRef
 
+log = logging.getLogger(__name__)
+
 
 class ChainedPriceLookup:
-    """Tries members in order; returns first non-None or None if all miss."""
+    """Tries members in order; returns first non-None or None if all miss.
+
+    Mirrors the contract of `aichemy.preprocessing.augment.prices.ChainedPriceLookup`:
+    one member raising must NOT abort the whole chain. A transient
+    `httpx.ConnectError` (or similar) from any vendor is logged and skipped;
+    the chain continues to the next member. Without this guard, a single
+    network blip aborts `augment_prices`' dict-comp over all input SMILES.
+    """
     name = "chain"
 
     def __init__(self, members: list[PriceLookup]) -> None:
@@ -674,7 +723,15 @@ class ChainedPriceLookup:
 
     def lookup(self, ref: VendorRef) -> PriceQuote | None:
         for m in self.members:
-            hit = m.lookup(ref)
+            try:
+                hit = m.lookup(ref)
+            except Exception as exc:  # one source failing shouldn't kill the chain
+                log.warning(
+                    "Price lookup backend %r raised on %s/%s: %s",
+                    getattr(m, "name", type(m).__name__),
+                    ref.vendor, ref.sku, exc,
+                )
+                continue
             if hit is not None:
                 return hit
         return None
@@ -990,10 +1047,10 @@ git commit -m "feat(pricing): shared fixture-capture validator (_capture.py)"
 |---|---:|---|
 | `test_types.py` | 7 | Currency normalization, positivity validators, InChIKey length, per-gram math |
 | `test_ratelimit.py` | 3 | No-block under capacity; blocks after exhaustion; rejects invalid args |
-| `test_chain.py` | 3 | First-hit short-circuit; all-miss → None; empty-members → None |
+| `test_chain.py` | 4 | First-hit short-circuit; all-miss → None; empty-members → None; **per-member exception swallowed + continues** |
 | `test_cache.py` | 4 | Inner called once per ref; cache misses; TTL expiry; field round-trip |
 | `test_http.py` | 3 | Browser UA on plain client; redirects; curl_cffi factory shape |
-| **Total** | **20** | All offline; no `live` markers in this sub-plan. |
+| **Total** | **21** | All offline; no `live` markers in this sub-plan. |
 
 **All-tests command:**
 ```bash
