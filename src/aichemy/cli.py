@@ -308,20 +308,43 @@ def balance_uspto(
 
     from aichemy.preprocessing.balance import syn_rbl as syn_rbl_module
 
+    # Trust deterministic SYN-RBL solves (rule-based / input-balanced report
+    # no confidence); require confidence > threshold for MCS-imputed solves
+    # where SYN-RBL is guessing missing compounds and can produce nonsense.
+    # Mirrors the gate applied in scripts/run_syn_rbl_full.py — keep in sync.
+    confidence_threshold = 0.8
+
     uspto_rows = reactions.filter(uspto_mask)
-    balanced = syn_rbl_module.balance_reactions(uspto_rows["reaction_smiles"].to_list())
-    # Replace the reaction_smiles column for balanced USPTO rows; drop
-    # rows the balancer couldn't fix (None).
-    fixed = uspto_rows.with_columns(pl.Series("reaction_smiles", balanced)).filter(
-        pl.col("reaction_smiles").is_not_null()
+    orig_smiles = uspto_rows["reaction_smiles"].to_list()
+    balance_results = syn_rbl_module.balance_reactions(orig_smiles)
+
+    # Gate: balanced=True iff SYN-RBL emitted a SMILES AND
+    # (confidence is None — deterministic solve — OR confidence > threshold).
+    # Keep all rows; replace `reaction_smiles` only when the gate passes,
+    # otherwise preserve the original USPTO SMILES so downstream stages can
+    # see the original patent claim.
+    balanced_bool = [
+        smi is not None and (conf is None or conf > confidence_threshold)
+        for smi, conf in balance_results
+    ]
+    new_rxn_smiles = [
+        smi if is_bal else orig
+        for orig, (smi, _conf), is_bal in zip(
+            orig_smiles, balance_results, balanced_bool, strict=True
+        )
+    ]
+    uspto_balanced = uspto_rows.with_columns(
+        pl.Series("reaction_smiles", new_rxn_smiles),
+        pl.Series("balanced", balanced_bool, dtype=pl.Boolean),
     )
+    n_recovered = sum(balanced_bool)
 
     other = reactions.filter(~uspto_mask)
-    merged = pl.concat([other, fixed], how="diagonal_relaxed")
+    merged = pl.concat([other, uspto_balanced], how="diagonal_relaxed")
     write_reactions(merged, output_path)
     typer.echo(
-        f"[balance uspto] balanced {fixed.height} of {uspto_count} USPTO rows "
-        f"(kept {merged.height} total)."
+        f"[balance uspto] balanced {n_recovered} of {uspto_count} USPTO rows "
+        f"at conf>{confidence_threshold} (kept {merged.height} total)."
     )
 
 
