@@ -21,6 +21,29 @@ import polars as pl
 log = logging.getLogger(__name__)
 
 
+def _float_or_none(val: str | None) -> float | None:
+    """Parse a yield string to a float in [0, 1], or None on failure.
+
+    Raw USPTO values carry a '%' suffix on a 0–100 scale (e.g. '82.0%').
+    Values already in [0, 1] are passed through unchanged. Values above 1.0
+    are assumed to be on the 0–100 scale and divided by 100; the result is
+    capped at 1.0 to absorb typo'd values like '100.5%'. Negative values and
+    unparseable strings return None.
+    """
+    if val is None or val == "":
+        return None
+    s = val.strip().rstrip("%").strip()
+    try:
+        x = float(s)
+    except (TypeError, ValueError):
+        return None
+    if x < 0:
+        return None
+    if x > 1.0:
+        x = x / 100.0
+    return min(x, 1.0)  # cap typo'd >100% values
+
+
 def parse_reaction_smiles(rxn: str) -> tuple[list[str], list[str], list[str]]:
     """Split a reaction-SMILES string into (reactants, agents, products)."""
     parts = rxn.split(">")
@@ -71,14 +94,6 @@ def ingest_uspto(rsmi_path: Path) -> pl.DataFrame:
         reactants, _agents, products = parse_reaction_smiles(rxn_smiles)
         reactants_col.append([{"mol_id": s, "coefficient": 1.0} for s in reactants])
         products_col.append([{"mol_id": s, "coefficient": 1.0} for s in products])
-
-    def _float_or_none(val: str | None) -> float | None:
-        if val is None or val == "":
-            return None
-        try:
-            return float(val)
-        except (TypeError, ValueError):
-            return None
 
     text_mined = [_float_or_none(v) for v in raw.get_column("text_mined_yield").to_list()]
     calculated = [_float_or_none(v) for v in raw.get_column("calculated_yield").to_list()]
