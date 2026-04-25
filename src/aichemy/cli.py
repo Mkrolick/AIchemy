@@ -280,27 +280,8 @@ def dedup_reactions(
 def balance_uspto(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
-    chunk_size: int = typer.Option(
-        5000,
-        "--chunk-size",
-        help="USPTO rows per SYN-RBL batch. Smaller = less data lost per crash, "
-        "more SYN-RBL init overhead.",
-    ),
-    workers: int = typer.Option(
-        -1,
-        "--workers",
-        help="n_jobs forwarded to SYN-RBL (-1 = all cores).",
-    ),
 ) -> None:
-    """Run SYN-RBL atom-balancing on USPTO reactions; MetaNetX rows pass through.
-
-    Chunked: USPTO rows go through SYN-RBL in batches of --chunk-size with
-    n_jobs=--workers per batch. A crash inside a batch is contained by the
-    wrapper (returns all-unbalanced for that batch) and the loop continues.
-    No on-disk checkpointing — interrupting discards in-memory progress.
-    """
-    import time
-
+    """Run SYN-RBL atom-balancing on USPTO reactions; MetaNetX rows pass through."""
     cfg = _load(config, override)
     input_path = interim_path(cfg, "deduped", "reactions.parquet")
     output_path = interim_path(cfg, "balanced", "reactions.parquet")
@@ -331,74 +312,39 @@ def balance_uspto(
     # Trust deterministic SYN-RBL solves (rule-based / input-balanced report
     # no confidence); require confidence > threshold for MCS-imputed solves
     # where SYN-RBL is guessing missing compounds and can produce nonsense.
+    # Mirrors the gate applied in scripts/run_syn_rbl_full.py — keep in sync.
     confidence_threshold = 0.8
 
     uspto_rows = reactions.filter(uspto_mask)
-    orig_smiles_all = uspto_rows["reaction_smiles"].to_list()
+    orig_smiles = uspto_rows["reaction_smiles"].to_list()
+    balance_results = syn_rbl_module.balance_reactions(orig_smiles)
 
-    n_chunks = (uspto_count + chunk_size - 1) // chunk_size
-    typer.echo(
-        f"[balance uspto] balancing {uspto_count} USPTO rows in {n_chunks} chunks "
-        f"of {chunk_size} (workers={workers})."
-    )
-
-    new_smiles_all: list[str | None] = []
-    balanced_all: list[bool] = []
-    overall_start = time.time()
-
-    for chunk_idx in range(n_chunks):
-        start = chunk_idx * chunk_size
-        end = min(start + chunk_size, uspto_count)
-        chunk_smiles = orig_smiles_all[start:end]
-
-        t0 = time.time()
-        results = syn_rbl_module.balance_reactions(chunk_smiles, n_jobs=workers)
-        elapsed = time.time() - t0
-
-        # Gate: balanced=True iff SYN-RBL emitted a SMILES AND
-        # (confidence is None — deterministic solve — OR confidence > threshold).
-        # When the gate fails, preserve the original USPTO SMILES so downstream
-        # stages still see the patent claim.
-        chunk_balanced = [
-            smi is not None and (conf is None or conf > confidence_threshold)
-            for smi, conf in results
-        ]
-        chunk_new_smiles = [
-            smi if is_bal else orig
-            for orig, (smi, _conf), is_bal in zip(
-                chunk_smiles, results, chunk_balanced, strict=True
-            )
-        ]
-
-        new_smiles_all.extend(chunk_new_smiles)
-        balanced_all.extend(chunk_balanced)
-
-        chunk_recovered = sum(chunk_balanced)
-        rate = len(chunk_smiles) / elapsed if elapsed > 0 else 0.0
-        cumulative = time.time() - overall_start
-        progress = (chunk_idx + 1) / n_chunks
-        eta_sec = cumulative * (1 - progress) / progress if progress > 0 else 0
-        typer.echo(
-            f"[balance uspto] chunk {chunk_idx + 1}/{n_chunks}: "
-            f"{len(chunk_smiles)} rows in {elapsed:.1f}s ({rate:.1f} rxn/s), "
-            f"{chunk_recovered} balanced. "
-            f"Total balanced: {sum(balanced_all)}. ETA: {eta_sec / 60:.1f} min."
+    # Gate: balanced=True iff SYN-RBL emitted a SMILES AND
+    # (confidence is None — deterministic solve — OR confidence > threshold).
+    # Keep all rows; replace `reaction_smiles` only when the gate passes,
+    # otherwise preserve the original USPTO SMILES so downstream stages can
+    # see the original patent claim.
+    balanced_bool = [
+        smi is not None and (conf is None or conf > confidence_threshold)
+        for smi, conf in balance_results
+    ]
+    new_rxn_smiles = [
+        smi if is_bal else orig
+        for orig, (smi, _conf), is_bal in zip(
+            orig_smiles, balance_results, balanced_bool, strict=True
         )
-
+    ]
     uspto_balanced = uspto_rows.with_columns(
-        pl.Series("reaction_smiles", new_smiles_all),
-        pl.Series("balanced", balanced_all, dtype=pl.Boolean),
+        pl.Series("reaction_smiles", new_rxn_smiles),
+        pl.Series("balanced", balanced_bool, dtype=pl.Boolean),
     )
-    n_recovered = sum(balanced_all)
+    n_recovered = sum(balanced_bool)
 
     other = reactions.filter(~uspto_mask)
     merged = pl.concat([other, uspto_balanced], how="diagonal_relaxed")
     write_reactions(merged, output_path)
-
-    total_min = (time.time() - overall_start) / 60
     typer.echo(
-        f"[balance uspto] DONE in {total_min:.1f} min: "
-        f"balanced {n_recovered} of {uspto_count} USPTO rows "
+        f"[balance uspto] balanced {n_recovered} of {uspto_count} USPTO rows "
         f"at conf>{confidence_threshold} (kept {merged.height} total)."
     )
 
