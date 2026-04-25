@@ -75,13 +75,24 @@ def _normalize_for_synrbl(rxn: str) -> str | None:
 def balance_reactions(
     reaction_smiles: Iterable[str],
     n_jobs: int = 1,
-) -> list[str | None]:
-    """Run SYN-RBL over a list of reaction SMILES; return balanced strings.
+) -> list[tuple[str | None, float | None]]:
+    """Run SYN-RBL over a list of reaction SMILES; return (smiles, confidence).
 
-    Returns None for entries that SYN-RBL could not process or balance.
-    On a whole-batch crash, returns all None — caller should pick a chunk
-    size that makes that loss acceptable (e.g. 1000 means losing 0.05% on
-    a 1.8M corpus if one chunk crashes).
+    Per-input return semantics:
+      * ``(None, None)``         — SYN-RBL produced no usable output for this
+                                   input (filtered as malformed, dropped by
+                                   SYN-RBL, or whole-batch crash).
+      * ``(smiles, None)``       — solved by a deterministic path
+                                   (``rule-based`` / ``input-balanced``);
+                                   SYN-RBL does not report a confidence score
+                                   for these — they're rule-driven bookkeeping.
+      * ``(smiles, float)``      — solved by ``mcs-based`` imputation; the
+                                   float is SYN-RBL's confidence in [0, 1].
+                                   Callers should apply their own threshold.
+
+    On a whole-batch crash, returns all ``(None, None)`` — caller should
+    pick a chunk size that makes that loss acceptable (e.g. 1000 means
+    losing 0.05% on a 1.8M corpus if one chunk crashes).
     """
     Balancer = _import_balancer()
     bal = Balancer(n_jobs=n_jobs)
@@ -92,13 +103,13 @@ def balance_reactions(
     normalized: list[str | None] = [_normalize_for_synrbl(r) for r in rxns]
     valid_pairs = [(i, r) for i, r in enumerate(normalized) if r is not None]
 
-    out: list[str | None] = [None] * len(rxns)
+    out: list[tuple[str | None, float | None]] = [(None, None)] * len(rxns)
     if not valid_pairs:
         return out
 
     try:
         with _suppress_synrbl_noise():
-            results = bal.rebalance([r for _, r in valid_pairs])
+            results = bal.rebalance([r for _, r in valid_pairs], output_dict=True)
     except Exception as exc:
         log.warning(
             "SYN-RBL batch of %d crashed (%s); chunk lost.",
@@ -107,21 +118,13 @@ def balance_reactions(
         )
         return out
 
-    # SYN-RBL sometimes returns a list[str], sometimes a DataFrame. Normalize.
-    if hasattr(results, "to_dict"):
-        # Pandas DataFrame — prefer the reactions column, fall back to first col.
-        cols = list(results.columns) if hasattr(results, "columns") else []
-        if "reactions" in cols:
-            results = results["reactions"].tolist()
-        elif "reaction_smiles" in cols:
-            results = results["reaction_smiles"].tolist()
-        elif cols:
-            results = results[cols[0]].tolist()
-        else:
-            results = []
-
     for (i, _), result in zip(valid_pairs, results, strict=False):
-        if isinstance(result, str) and result:
-            out[i] = result
+        if not isinstance(result, dict) or not result.get("solved"):
+            continue
+        reaction = result.get("reaction")
+        if not isinstance(reaction, str) or not reaction:
+            continue
+        confidence = result.get("confidence")
+        out[i] = (reaction, float(confidence) if confidence is not None else None)
 
     return out
