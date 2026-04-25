@@ -89,7 +89,7 @@ class AskcosCatalog:
             raw = json.load(f)
         log.info("AskcosCatalog: canonicalizing %d SMILES (cold path)...", len(raw))
 
-        RDLogger.DisableLog("rdApp.*")
+        RDLogger.DisableLog("rdApp.*")  # type: ignore[attr-defined]
         try:
             for row in raw:
                 smi = row.get("smiles")
@@ -110,7 +110,7 @@ class AskcosCatalog:
                         raw_smiles=smi,
                     )
         finally:
-            RDLogger.EnableLog("rdApp.*")
+            RDLogger.EnableLog("rdApp.*")  # type: ignore[attr-defined]
 
         log.info(
             "AskcosCatalog: loaded %d unique canonical SMILES from %d raw rows",
