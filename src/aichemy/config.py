@@ -42,7 +42,7 @@ class LicensesConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
     patentsview_endpoint: str = "https://search.patentsview.org/api/v1/patent"
-    cpc_rules_path: Path = Field(default_factory=lambda: Path("config/cpc_rules.yaml"))
+    cpc_rules_path: Path = Field(default_factory=lambda: Path("configs/cpc_rules.yaml"))
     cache_path: Path = Field(default_factory=lambda: Path("data/interim/licenses/llm_cache.jsonl"))
     llm_model: str = "claude-haiku-4-5"
     fetch_batch_size: int = 25
