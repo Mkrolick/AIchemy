@@ -38,6 +38,20 @@ class YieldConfig(BaseModel):
     enzymatic_prior_range: tuple[float, float] = (0.85, 0.95)
 
 
+class LicensesConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    patentsview_endpoint: str = "https://search.patentsview.org/api/v1/patent"
+    cpc_rules_path: Path = Field(default_factory=lambda: Path("config/cpc_rules.yaml"))
+    cache_path: Path = Field(
+        default_factory=lambda: Path("data/interim/licenses/llm_cache.jsonl")
+    )
+    llm_model: str = "claude-haiku-4-5"
+    fetch_batch_size: int = 25
+    fetch_max_retries: int = 3
+    llm_max_retries: int = 3
+
+
 class MetaNetXURLsConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
@@ -121,6 +135,7 @@ class PreprocessingConfig(BaseModel):
     yields: YieldConfig = Field(default_factory=YieldConfig)
     prices: PricesConfig = Field(default_factory=PricesConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
+    licenses: LicensesConfig = Field(default_factory=LicensesConfig)
 
 
 def _deep_merge(base: dict[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:
