@@ -95,6 +95,19 @@ def build_and_solve(
     if reactions.height == 0:
         return Solution("No reactions after filtering", 0.0, [], [], [])
 
+    # Reaction-level composition_covered → molecule-level: any product of a
+    # composition-covered reaction is itself composition-covered for royalty.
+    # Defensive: only runs when the column is present (license data attached).
+    if "composition_covered" in reactions.columns:
+        comp_mol_ids: set[str] = set()
+        for row in reactions.iter_rows(named=True):
+            if row.get("composition_covered"):
+                for stoich in row["products"]:
+                    comp_mol_ids.add(stoich["mol_id"])
+        molecules = molecules.with_columns(
+            pl.col("mol_id").is_in(list(comp_mol_ids)).alias("composition_covered")
+        )
+
     # Universe of molecules is every mol_id referenced by a surviving reaction.
     referenced: set[str] = set()
     rxn_meta: list[dict[str, Any]] = []
@@ -113,8 +126,16 @@ def build_and_solve(
                 "yield_rate": yield_rate,
                 "reactants": reactants,
                 "products": products,
+                "process_covered": bool(row.get("process_covered") or False),
             }
         )
+
+    # Composition-covered molecule set (drives the composition royalty term).
+    composition_covered: set[str] = set()
+    if "composition_covered" in molecules.columns:
+        for r in molecules.iter_rows(named=True):
+            if r.get("composition_covered"):
+                composition_covered.add(r["mol_id"])
 
     # Price lookup: molecule mol_id → (buy_price, sell_price).
     price_lookup = _build_price_lookup(molecules, referenced, config)
@@ -146,12 +167,25 @@ def build_and_solve(
     }
     w = {mol_id: pulp.LpVariable(f"w_{_safe(mol_id)}", cat=pulp.LpBinary) for mol_id in referenced}
 
-    # Objective: sell revenue − buy cost
-    prob += (
-        pulp.lpSum(price_lookup[m][1] * q_sell[m] for m in referenced)
-        - pulp.lpSum(price_lookup[m][0] * q_buy[m] for m in referenced),
-        "total_profit",
+    # Objective: sell revenue − buy cost − process royalty − composition royalty.
+    # Royalty terms are zero whenever (a) license data isn't attached to the
+    # input reactions/molecules, or (b) config.r_process / config.r_comp are 0.
+    revenue = pulp.lpSum(price_lookup[m][1] * q_sell[m] for m in referenced)
+    cost = pulp.lpSum(price_lookup[m][0] * q_buy[m] for m in referenced)
+    process_royalty = pulp.lpSum(
+        config.r_process
+        * sum(price_lookup[mid][1] for (mid, _) in m["products"])
+        * m["yield_rate"]
+        * f[m["rxn_id"]]
+        for m in rxn_meta
+        if m["process_covered"]
     )
+    composition_royalty = pulp.lpSum(
+        config.r_comp * price_lookup[m][1] * q_sell[m]
+        for m in referenced
+        if m in composition_covered
+    )
+    prob += (revenue - cost - process_royalty - composition_royalty, "total_profit")
 
     # Mass balance: for each molecule, supply = consumption.
     for mol_id in referenced:
