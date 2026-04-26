@@ -150,12 +150,12 @@ def test_default_yaml_parses() -> None:
     cfg = load_config(default_path)
     expected = PreprocessingConfig()
     expected.prices.aichemy_pricing.allowed_sources = [
-        "Enamine",
-        "Fluorochem",
-        "MedChemExpress",
-        "Molbase",
-        "Santa Cruz Biotechnology, Inc.",
-        "Tocris Bioscience",
+        "822",  # Enamine
+        "959",  # MedChemExpress
+        "10600",  # Tocris Bioscience
+        "25659",  # Santa Cruz Biotechnology
+        "29665",  # Fluorochem
+        "Sigma-Aldrich",
     ]
     expected.prices.aichemy_pricing.max_workers = 100
     assert cfg == expected
@@ -216,12 +216,15 @@ def test_default_yaml_aichemy_pricing_block_has_curated_allowed_sources_and_work
     cfg = PreprocessingConfig.model_validate(raw)
     aip = cfg.prices.aichemy_pricing
     # Locks in the curated vendor list — see configs/default.yaml for rationale.
+    # Values are PubChem `DSN`s (mostly numeric source IDs; Sigma-Aldrich is a
+    # legacy string). Resolved against
+    # https://ftp.ncbi.nlm.nih.gov/pubchem/Substance/Extras/Source-Names.
     assert aip.allowed_sources == [
-        "Enamine",
-        "Fluorochem",
-        "MedChemExpress",
-        "Molbase",
-        "Santa Cruz Biotechnology, Inc.",
-        "Tocris Bioscience",
+        "822",
+        "959",
+        "10600",
+        "25659",
+        "29665",
+        "Sigma-Aldrich",
     ]
     assert aip.max_workers == 100

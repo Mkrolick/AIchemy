@@ -34,17 +34,26 @@ prices:
   aichemy_pricing:
     catalog_dir: data/raw/pubchem_substance
     cache_path: data/interim/aichemy_pricing_cache.sqlite
-    # Vendor allowlist for the PubChem SDF resolver. PubChem Substance has 914
-    # source tags; loading them all OOMs at full-corpus scale (491M SIDs). This
-    # restricts the in-memory InChIKey index to vendors we actually price via
-    # the L2/L3 chain. Names match `PUBCHEM_EXT_DATASOURCE_NAME` exactly.
+    # Vendor allowlist for the PubChem SDF resolver. PubChem Substance has
+    # ~1431 sources; loading them all OOMs at full-corpus scale (491M SIDs).
+    # This restricts the in-memory InChIKey index to vendors we actually
+    # price via the L2/L3 chain. Values must match the `DSN` column from
+    # https://ftp.ncbi.nlm.nih.gov/pubchem/Substance/Extras/Source-Names —
+    # which is the literal string stored in `PUBCHEM_EXT_DATASOURCE_NAME`
+    # in each SDF record. Most are numeric source IDs; a few legacy
+    # depositors use a string DSN (Sigma-Aldrich is one). See
+    # `docs/superpowers/plans/2026-04-26-pricing-scalability.md` Task 6
+    # for the discovery process.
+    #
+    # Note: Molbase (Chinese vendor, no PubChem deposit) is in our chain
+    # but absent here — its SDFs would have to come from a different source.
     allowed_sources:
-      - Enamine
-      - Fluorochem
-      - MedChemExpress
-      - Molbase
-      - Santa Cruz Biotechnology, Inc.
-      - Tocris Bioscience
+      - "822"             # Enamine (5.2M live substances)
+      - "959"             # MedChemexpress MCE (117K)
+      - "10600"           # Tocris Bioscience (5K)
+      - "25659"           # Santa Cruz Biotechnology, Inc. (174K)
+      - "29665"           # Fluorochem (96K)
+      - "Sigma-Aldrich"   # Sigma-Aldrich (258K) — literal string DSN, not numeric
     max_workers: 100
 
 paths:
