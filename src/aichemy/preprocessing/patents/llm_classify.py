@@ -111,9 +111,7 @@ def classify_patent_llm(
         messages=[{"role": "user", "content": user}],
     )
     if msg.stop_reason != "tool_use":
-        log.warning(
-            "Unexpected stop_reason=%s for patent=%s", msg.stop_reason, patent_number
-        )
+        log.warning("Unexpected stop_reason=%s for patent=%s", msg.stop_reason, patent_number)
         return None
     for block in msg.content:
         if getattr(block, "type", None) == "tool_use" and block.name == "report_classification":
