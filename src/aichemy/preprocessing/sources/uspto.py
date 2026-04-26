@@ -52,6 +52,12 @@ def parse_reaction_smiles(rxn: str) -> tuple[list[str], list[str], list[str]]:
     reactants, agents, products = parts
 
     def _split(side: str) -> list[str]:
+        # Strip CXSMILES extensions (' |f:0.1.2,3.4,6' etc.) before splitting
+        # on the molecule separator. The CXSMILES `|f:` notation uses dots
+        # internally to separate fragment groups, which would otherwise
+        # contaminate mol_ids with garbage tokens like '1', '2', '4,6'.
+        if " |" in side:
+            side = side.split(" |", 1)[0]
         return [s for s in side.split(".") if s]
 
     return _split(reactants), _split(agents), _split(products)
