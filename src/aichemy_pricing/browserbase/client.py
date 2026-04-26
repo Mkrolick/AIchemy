@@ -1,7 +1,17 @@
 """Thin httpx wrapper around Browserbase's Fetch API.
 
 Mechanics: one HTTPS POST to https://api.browserbase.com/v1/fetch with
-`{"url": "..."}`. Returns rendered markdown of the page after JS runs.
+`{"url": "..."}`. Returns the upstream HTTP response as JSON:
+
+    {"id": "...", "statusCode": 200, "headers": {...},
+     "content": "<!doctype html>...", ...}
+
+The `content` field is the raw HTML — Fetch DOES NOT execute JavaScript.
+We convert HTML → markdown via html2text so downstream parsers see a
+stable text representation. SPA-only vendors (Sigma, Enamine, Cayman,
+Tocris) return their unhydrated shell here and must be handled by the
+Browser API path instead.
+
 Auth via X-BB-API-Key from BROWSERBASE_API_KEY env var.
 
 When the env var is unset, `is_configured()` returns False and
@@ -19,12 +29,21 @@ from __future__ import annotations
 import logging
 import os
 
+import html2text
 import httpx
 
 log = logging.getLogger(__name__)
 
 _FETCH_URL = "https://api.browserbase.com/v1/fetch"
 _TIMEOUT = httpx.Timeout(60.0, connect=10.0)
+
+
+def _html_to_markdown(html: str) -> str:
+    h = html2text.HTML2Text()
+    h.body_width = 0
+    h.ignore_images = True
+    h.ignore_emphasis = True
+    return h.handle(html)
 
 
 class BrowserbaseClient:
@@ -40,11 +59,12 @@ class BrowserbaseClient:
         return bool(self._api_key)
 
     def fetch_markdown(self, url: str) -> str | None:
-        """POST to Fetch API, return rendered markdown or None on any failure.
+        """POST to Fetch API, return HTML-as-markdown or None on any failure.
 
-        Returns None (not raises) for: no API key, HTTP error, malformed
-        response — the L3 layer treats every miss as "this vendor didn't
-        return a price" rather than aborting the whole chain.
+        Returns None (not raises) for: no API key, HTTP error, Browserbase
+        non-200, upstream non-2xx, malformed JSON, empty content. The L3
+        layer treats every miss as "this vendor didn't return a price"
+        rather than aborting the whole chain.
         """
         if not self._api_key:
             log.debug("BrowserbaseClient: BROWSERBASE_API_KEY unset; skipping %s", url)
@@ -69,5 +89,12 @@ class BrowserbaseClient:
         except ValueError:
             log.warning("Browserbase fetch %s: non-JSON response", url)
             return None
-        markdown = data.get("markdown")
-        return markdown if isinstance(markdown, str) else None
+        upstream_status = data.get("statusCode")
+        if not isinstance(upstream_status, int) or not 200 <= upstream_status < 300:
+            log.warning("Browserbase fetch %s: upstream status %r", url, upstream_status)
+            return None
+        html = data.get("content")
+        if not isinstance(html, str) or not html:
+            log.warning("Browserbase fetch %s: empty/missing content", url)
+            return None
+        return _html_to_markdown(html)

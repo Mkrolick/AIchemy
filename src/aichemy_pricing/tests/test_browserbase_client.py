@@ -29,7 +29,13 @@ def test_client_with_key_posts_to_fetch_endpoint(monkeypatch) -> None:
         captured["body"] = json.loads(request.content.decode())
         return httpx.Response(
             200,
-            content=json.dumps({"markdown": "# Hello\n$12.50 / 5 g", "status": 200}).encode(),
+            content=json.dumps(
+                {
+                    "statusCode": 200,
+                    "headers": {},
+                    "content": "<html><body><h1>Hello</h1><p>$12.50 / 5 g</p></body></html>",
+                }
+            ).encode(),
             request=request,
         )
 
@@ -54,6 +60,37 @@ def test_client_returns_none_on_non_200(monkeypatch) -> None:
     monkeypatch.setattr(httpx.Client, "send", mock_send)
     c = BrowserbaseClient()
     assert c.fetch_markdown("https://example.com/x") is None
+
+
+def test_client_returns_none_on_upstream_non_2xx(monkeypatch) -> None:
+    """Browserbase returns 200 with statusCode=404 — the upstream page was missing."""
+    monkeypatch.setenv("BROWSERBASE_API_KEY", "test-key")
+
+    def mock_send(self, request, **kw):
+        return httpx.Response(
+            200,
+            content=json.dumps(
+                {"statusCode": 404, "headers": {}, "content": "<html>Not Found</html>"}
+            ).encode(),
+            request=request,
+        )
+
+    monkeypatch.setattr(httpx.Client, "send", mock_send)
+    assert BrowserbaseClient().fetch_markdown("https://example.com/x") is None
+
+
+def test_client_returns_none_on_empty_content(monkeypatch) -> None:
+    monkeypatch.setenv("BROWSERBASE_API_KEY", "test-key")
+
+    def mock_send(self, request, **kw):
+        return httpx.Response(
+            200,
+            content=json.dumps({"statusCode": 200, "headers": {}, "content": ""}).encode(),
+            request=request,
+        )
+
+    monkeypatch.setattr(httpx.Client, "send", mock_send)
+    assert BrowserbaseClient().fetch_markdown("https://example.com/x") is None
 
 
 @pytest.mark.live
