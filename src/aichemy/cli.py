@@ -676,6 +676,48 @@ def patents_classify_cpc(
     )
 
 
+@patents_app.command("classify-llm")
+def patents_classify_llm(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Eagerly classify CPC-ambiguous active patents via Claude; cache results."""
+    import os
+
+    import anthropic
+
+    from aichemy.preprocessing.patents.llm_classify import classify_ambiguous_patents
+
+    cfg = _load(config, override)
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise typer.BadParameter(
+            "ANTHROPIC_API_KEY not set; LLM classification cannot proceed."
+        )
+
+    cpc = pl.read_parquet(licenses_path(cfg, "cpc_classifications.parquet"))
+    patents = pl.read_parquet(patents_path(cfg, "patent_metadata.parquet"))
+    reactions = read_reactions(interim_path(cfg, "augmented", "reactions_full.parquet"))
+
+    client = anthropic.Anthropic()
+    out_path = licenses_path(cfg, "llm_classifications.parquet")
+    out = classify_ambiguous_patents(
+        cpc=cpc,
+        patents=patents,
+        reactions=reactions,
+        cache_path=cfg.licenses.cache_path,
+        out_path=out_path,
+        client=client,
+        model=cfg.licenses.llm_model,
+        max_retries=cfg.licenses.llm_max_retries,
+    )
+    n_hit = int(out["cache_hit"].sum())
+    typer.echo(
+        f"[patents classify-llm] {out.height} patents classified "
+        f"({n_hit} cache hits, {out.height - n_hit} fresh) → {out_path}"
+    )
+
+
 @app.command("export")
 def export(
     config: Path = ConfigOpt,
