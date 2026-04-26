@@ -164,3 +164,34 @@ def test_mean_yields_profile_applies() -> None:
     profile_path = repo_root / "configs" / "profiles" / "mean_yields.yaml"
     cfg = load_config(default_path, [profile_path])
     assert cfg.yields.strategy == YieldImputationStrategy.PER_EC_CLASS
+
+
+def test_aichemy_pricing_config_allowed_sources_default_is_none() -> None:
+    from aichemy.config import AichemyPricingConfig
+
+    cfg = AichemyPricingConfig()
+    assert cfg.allowed_sources is None
+    assert cfg.max_workers == 1
+
+
+def test_aichemy_pricing_config_accepts_allowed_sources_list_and_max_workers() -> None:
+    from aichemy.config import AichemyPricingConfig
+
+    cfg = AichemyPricingConfig.model_validate(
+        {
+            "allowed_sources": ["Fluorochem", "Enamine"],
+            "max_workers": 100,
+        }
+    )
+    assert cfg.allowed_sources == ["Fluorochem", "Enamine"]
+    assert cfg.max_workers == 100
+
+
+def test_aichemy_pricing_config_rejects_max_workers_below_one() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    from aichemy.config import AichemyPricingConfig
+
+    with pytest.raises(ValidationError):
+        AichemyPricingConfig.model_validate({"max_workers": 0})
