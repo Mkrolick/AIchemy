@@ -133,6 +133,7 @@ def ingest_metanetx(fixture_dir: Path) -> tuple[pl.DataFrame, pl.DataFrame]:
         pl.lit(None, dtype=pl.Float64).alias("yield_rate"),
         pl.lit(None, dtype=pl.Float64).alias("delta_g"),
         pl.col("balanced_mnx").alias("balanced"),
+        pl.lit(False).cast(pl.Boolean).alias("rdkit_balanced"),
         pl.lit("metanetx").alias("source"),
         pl.col("ec_class"),
         # MetaNetX's `reac_prop.tsv` does not carry an explicit direction flag

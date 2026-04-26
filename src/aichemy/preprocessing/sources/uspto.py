@@ -52,6 +52,12 @@ def parse_reaction_smiles(rxn: str) -> tuple[list[str], list[str], list[str]]:
     reactants, agents, products = parts
 
     def _split(side: str) -> list[str]:
+        # Strip CXSMILES extensions (' |f:0.1.2,3.4,6' etc.) before splitting
+        # on the molecule separator. The CXSMILES `|f:` notation uses dots
+        # internally to separate fragment groups, which would otherwise
+        # contaminate mol_ids with garbage tokens like '1', '2', '4,6'.
+        if " |" in side:
+            side = side.split(" |", 1)[0]
         return [s for s in side.split(".") if s]
 
     return _split(reactants), _split(agents), _split(products)
@@ -116,6 +122,7 @@ def ingest_uspto(rsmi_path: Path) -> pl.DataFrame:
             "yield_rate": yield_rate,
             "delta_g": [None] * raw.height,
             "balanced": [False] * raw.height,
+            "rdkit_balanced": [False] * raw.height,
             "source": ["uspto"] * raw.height,
             "ec_class": [None] * raw.height,
         },
@@ -123,6 +130,7 @@ def ingest_uspto(rsmi_path: Path) -> pl.DataFrame:
             "yield_rate": pl.Float64,
             "delta_g": pl.Float64,
             "balanced": pl.Boolean,
+            "rdkit_balanced": pl.Boolean,
             "ec_class": pl.Utf8,
         },
     )

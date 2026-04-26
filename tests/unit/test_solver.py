@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import polars as pl
+import pytest
 
 from aichemy.solver.config import SolverConfig
 from aichemy.solver.model import build_and_solve
@@ -29,6 +30,7 @@ def _sample_reactions(reactions: list[dict]) -> pl.DataFrame:
         r.setdefault("yield_rate", 0.9)
         r.setdefault("type", "chemical")
         r.setdefault("balanced", True)
+        r.setdefault("rdkit_balanced", True)
         r.setdefault("source", "test")
         r.setdefault("delta_g", None)
         r.setdefault("reaction_smiles", ">>")
@@ -75,6 +77,7 @@ def test_unbalanced_reactions_excluded() -> None:
                 "reactants": [{"mol_id": "A", "coefficient": 1.0}],
                 "products": [{"mol_id": "B", "coefficient": 1.0}],
                 "balanced": False,
+                "rdkit_balanced": False,
             },
         ]
     )
@@ -82,6 +85,39 @@ def test_unbalanced_reactions_excluded() -> None:
     solution = build_and_solve(reactions, molecules, SolverConfig())
     assert solution.objective_value == 0.0
     assert "filtering" in solution.status or solution.activated_reactions == []
+
+
+@pytest.mark.parametrize(
+    "filter_col,row_balanced,row_rdkit,expect_activated",
+    [
+        ("rdkit_balanced", True, False, False),  # strict drops it
+        ("balanced", True, False, True),  # loose keeps it
+        ("rdkit_balanced", True, True, True),
+        ("balanced", False, True, False),
+    ],
+)
+def test_balance_filter_selects_column(
+    filter_col: str,
+    row_balanced: bool,
+    row_rdkit: bool,
+    expect_activated: bool,
+) -> None:
+    reactions = _sample_reactions(
+        [
+            {
+                "rxn_id": "r1",
+                "reactants": [{"mol_id": "A", "coefficient": 1.0}],
+                "products": [{"mol_id": "B", "coefficient": 1.0}],
+                "balanced": row_balanced,
+                "rdkit_balanced": row_rdkit,
+            },
+        ]
+    )
+    molecules = _sample_molecules({"A": 1.0, "B": 10.0})
+    cfg = SolverConfig(budget=100.0, balance_filter=filter_col)  # type: ignore[arg-type]
+    sol = build_and_solve(reactions, molecules, cfg)
+    activated = {r["rxn_id"] for r in sol.activated_reactions}
+    assert ("r1" in activated) is expect_activated
 
 
 def test_budget_constraint_caps_purchases() -> None:

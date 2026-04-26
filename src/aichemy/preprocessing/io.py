@@ -33,6 +33,9 @@ class Reaction(pt.Model):
     delta_g: float | None = None
     balanced: bool
     source: str  # "metanetx" | "uspto"
+    patent_active: bool = False
+    process_covered: bool = False
+    composition_covered: bool = False
 
 
 def resolve_data_dir(config: PreprocessingConfig) -> Path:
@@ -55,6 +58,14 @@ def processed_path(config: PreprocessingConfig, *parts: str) -> Path:
     return resolve_data_dir(config).joinpath("processed", *parts)
 
 
+def patents_path(config: PreprocessingConfig, *parts: str) -> Path:
+    return resolve_data_dir(config).joinpath("interim", "patents", *parts)
+
+
+def licenses_path(config: PreprocessingConfig, *parts: str) -> Path:
+    return resolve_data_dir(config).joinpath("interim", "licenses", *parts)
+
+
 MOLECULE_SCHEMA = {
     "mol_id": pl.Utf8,
     "canonical_smiles": pl.Utf8,
@@ -62,6 +73,9 @@ MOLECULE_SCHEMA = {
     "carbon_count": pl.Int64,
     "price_per_gram": pl.Float64,
     "source_refs": pl.List(pl.Utf8),
+    # Set True by normalize when a wildcard SMILES was rewritten to a concrete
+    # exemplar via the class-metabolite resolver. Downstream stages may ignore.
+    "is_class_resolved": pl.Boolean,
 }
 
 REACTION_SCHEMA = {
@@ -73,7 +87,11 @@ REACTION_SCHEMA = {
     "yield_rate": pl.Float64,
     "delta_g": pl.Float64,
     "balanced": pl.Boolean,
+    "rdkit_balanced": pl.Boolean,
     "source": pl.Utf8,
+    "patent_active": pl.Boolean,
+    "process_covered": pl.Boolean,
+    "composition_covered": pl.Boolean,
 }
 
 

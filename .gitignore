@@ -53,3 +53,4 @@ data/
 
 # OS
 .DS_Store
+data_subset/

@@ -185,15 +185,39 @@ def normalize(
     else:
         molecules = mnx_mols
 
+    # Resolve MetaNetX class metabolites (SMILES with [*] wildcards) to concrete
+    # exemplars — otherwise they carry through with null inchi_key and never
+    # collapse during dedup.
+    from aichemy.preprocessing.chem.resolve_class import (
+        drop_unreferenced_empty_molecules,
+        resolve_class_metabolites,
+    )
+
+    rows_before = molecules.height
+    nulls_before = molecules.filter(pl.col("inchi_key").is_null()).height
+    molecules = resolve_class_metabolites(molecules)
+    n_resolved = molecules.filter(pl.col("is_class_resolved")).height
+
     filtered = normalize_module.filter_reactions_by_carbon(
         reactions, molecules, min_carbon=cfg.filter.min_carbon_count
     )
+    molecules = normalize_module.filter_molecules_by_usage(molecules, filtered)
+
+    # Drop empty-SMILES MetaNetX catalog entries that don't appear in any
+    # surviving (post-carbon-filter) reaction. Run AFTER the carbon filter
+    # so molecules referenced only by dropped small-molecule reactions don't
+    # linger as ghosts.
+    molecules = drop_unreferenced_empty_molecules(molecules, filtered)
+    nulls_after = molecules.filter(pl.col("inchi_key").is_null()).height
+    rows_after = molecules.height
 
     write_molecules(molecules, mol_out)
     write_reactions(filtered, rxn_out)
     typer.echo(
         f"[normalize] wrote {molecules.height} molecules, {filtered.height} reactions "
-        f"(kept {filtered.height} of {reactions.height} after carbon filter)."
+        f"(kept {filtered.height} of {reactions.height} after carbon filter); "
+        f"resolved {n_resolved} class metabolites, dropped {rows_before - rows_after} "
+        f"empty-SMILES orphans (null InChIKey: {nulls_before} -> {nulls_after})."
     )
 
 
@@ -279,8 +303,27 @@ def dedup_reactions(
 def balance_uspto(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
+    chunk_size: int = typer.Option(
+        5000,
+        "--chunk-size",
+        help="USPTO rows per SYN-RBL batch. Smaller = less data lost per crash, "
+        "more SYN-RBL init overhead.",
+    ),
+    workers: int = typer.Option(
+        -1,
+        "--workers",
+        help="n_jobs forwarded to SYN-RBL (-1 = all cores).",
+    ),
 ) -> None:
-    """Run SYN-RBL atom-balancing on USPTO reactions; MetaNetX rows pass through."""
+    """Run SYN-RBL atom-balancing on USPTO reactions; MetaNetX rows pass through.
+
+    Chunked: USPTO rows go through SYN-RBL in batches of --chunk-size with
+    n_jobs=--workers per batch. A crash inside a batch is contained by the
+    wrapper (returns all-unbalanced for that batch) and the loop continues.
+    No on-disk checkpointing — interrupting discards in-memory progress.
+    """
+    import time
+
     cfg = _load(config, override)
     input_path = interim_path(cfg, "deduped", "reactions.parquet")
     output_path = interim_path(cfg, "balanced", "reactions.parquet")
@@ -311,40 +354,108 @@ def balance_uspto(
     # Trust deterministic SYN-RBL solves (rule-based / input-balanced report
     # no confidence); require confidence > threshold for MCS-imputed solves
     # where SYN-RBL is guessing missing compounds and can produce nonsense.
-    # Mirrors the gate applied in scripts/run_syn_rbl_full.py — keep in sync.
     confidence_threshold = 0.8
 
     uspto_rows = reactions.filter(uspto_mask)
-    orig_smiles = uspto_rows["reaction_smiles"].to_list()
-    balance_results = syn_rbl_module.balance_reactions(orig_smiles)
+    orig_smiles_all = uspto_rows["reaction_smiles"].to_list()
 
-    # Gate: balanced=True iff SYN-RBL emitted a SMILES AND
-    # (confidence is None — deterministic solve — OR confidence > threshold).
-    # Keep all rows; replace `reaction_smiles` only when the gate passes,
-    # otherwise preserve the original USPTO SMILES so downstream stages can
-    # see the original patent claim.
-    balanced_bool = [
-        smi is not None and (conf is None or conf > confidence_threshold)
-        for smi, conf in balance_results
-    ]
-    new_rxn_smiles = [
-        smi if is_bal else orig
-        for orig, (smi, _conf), is_bal in zip(
-            orig_smiles, balance_results, balanced_bool, strict=True
-        )
-    ]
-    uspto_balanced = uspto_rows.with_columns(
-        pl.Series("reaction_smiles", new_rxn_smiles),
-        pl.Series("balanced", balanced_bool, dtype=pl.Boolean),
+    n_chunks = (uspto_count + chunk_size - 1) // chunk_size
+    typer.echo(
+        f"[balance uspto] balancing {uspto_count} USPTO rows in {n_chunks} chunks "
+        f"of {chunk_size} (workers={workers})."
     )
-    n_recovered = sum(balanced_bool)
+
+    new_smiles_all: list[str | None] = []
+    balanced_all: list[bool] = []
+    overall_start = time.time()
+
+    for chunk_idx in range(n_chunks):
+        start = chunk_idx * chunk_size
+        end = min(start + chunk_size, uspto_count)
+        chunk_smiles = orig_smiles_all[start:end]
+
+        t0 = time.time()
+        results = syn_rbl_module.balance_reactions(chunk_smiles, n_jobs=workers)
+        elapsed = time.time() - t0
+
+        # Gate: balanced=True iff SYN-RBL emitted a SMILES AND
+        # (confidence is None — deterministic solve — OR confidence > threshold).
+        # When the gate fails, preserve the original USPTO SMILES so downstream
+        # stages still see the patent claim.
+        chunk_balanced = [
+            smi is not None and (conf is None or conf > confidence_threshold)
+            for smi, conf in results
+        ]
+        chunk_new_smiles = [
+            smi if is_bal else orig
+            for orig, (smi, _conf), is_bal in zip(
+                chunk_smiles, results, chunk_balanced, strict=True
+            )
+        ]
+
+        new_smiles_all.extend(chunk_new_smiles)
+        balanced_all.extend(chunk_balanced)
+
+        chunk_recovered = sum(chunk_balanced)
+        rate = len(chunk_smiles) / elapsed if elapsed > 0 else 0.0
+        cumulative = time.time() - overall_start
+        progress = (chunk_idx + 1) / n_chunks
+        eta_sec = cumulative * (1 - progress) / progress if progress > 0 else 0
+        typer.echo(
+            f"[balance uspto] chunk {chunk_idx + 1}/{n_chunks}: "
+            f"{len(chunk_smiles)} rows in {elapsed:.1f}s ({rate:.1f} rxn/s), "
+            f"{chunk_recovered} balanced. "
+            f"Total balanced: {sum(balanced_all)}. ETA: {eta_sec / 60:.1f} min."
+        )
+
+    uspto_balanced = uspto_rows.with_columns(
+        pl.Series("reaction_smiles", new_smiles_all),
+        pl.Series("balanced", balanced_all, dtype=pl.Boolean),
+    )
+    n_recovered = sum(balanced_all)
 
     other = reactions.filter(~uspto_mask)
     merged = pl.concat([other, uspto_balanced], how="diagonal_relaxed")
+    # Write the audit-trail file: ALL rows preserved, with `balanced` set per
+    # SYN-RBL's confidence gate (USPTO) or curator (MetaNetX). The drop step
+    # `balance drop-unbalanced` produces the working set in interim/filtered/.
     write_reactions(merged, output_path)
+
+    total_min = (time.time() - overall_start) / 60
     typer.echo(
-        f"[balance uspto] balanced {n_recovered} of {uspto_count} USPTO rows "
-        f"at conf>{confidence_threshold} (kept {merged.height} total)."
+        f"[balance uspto] DONE in {total_min:.1f} min: "
+        f"balanced {n_recovered} of {uspto_count} USPTO rows "
+        f"at conf>{confidence_threshold} (kept {merged.height} total — drop happens in next stage)."
+    )
+
+
+@balance_app.command("drop-unbalanced")
+def balance_drop_unbalanced(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Drop rows where `balanced=False`. Reads balanced/, writes filtered/.
+
+    For USPTO this drops the rows SYN-RBL couldn't solve at conf > threshold;
+    for MetaNetX the rows where the curator's is_balanced flag was 'N'.
+    The pre-drop file is preserved at interim/balanced/ for audit trail.
+    """
+    cfg = _load(config, override)
+    input_path = interim_path(cfg, "balanced", "reactions.parquet")
+    output_path = interim_path(cfg, "filtered", "reactions.parquet")
+
+    if not input_path.exists():
+        write_empty_reactions(output_path)
+        typer.echo(f"[balance drop-unbalanced] upstream {input_path} missing; wrote empty parquet.")
+        return
+
+    df = read_reactions(input_path)
+    pre = df.height
+    kept = df.filter(pl.col("balanced"))
+    write_reactions(kept, output_path)
+    typer.echo(
+        f"[balance drop-unbalanced] kept {kept.height} of {pre} rows "
+        f"(dropped {pre - kept.height} where balanced=False)."
     )
 
 
@@ -353,9 +464,9 @@ def balance_validate(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """Universal atom-count validation; populates balanced: bool for all reactions."""
+    """Universal atom-count validation; populates rdkit_balanced: bool for all reactions."""
     cfg = _load(config, override)
-    input_path = interim_path(cfg, "balanced", "reactions.parquet")
+    input_path = interim_path(cfg, "filtered", "reactions.parquet")
     output_path = interim_path(cfg, "validated", "reactions.parquet")
 
     if not input_path.exists():
@@ -374,7 +485,8 @@ def balance_validate(
     write_reactions(validated, output_path)
     typer.echo(
         f"[balance validate] wrote {validated.height} rows "
-        f"({validated.filter(validated['balanced']).height} balanced)."
+        f"({validated.filter(validated['rdkit_balanced']).height} rdkit_balanced "
+        f"of {validated.filter(validated['balanced']).height} balanced)."
     )
 
 

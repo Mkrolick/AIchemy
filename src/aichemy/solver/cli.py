@@ -30,6 +30,14 @@ _VerboseOpt = typer.Option(False, "--verbose")
 _OutputOpt = typer.Option(
     None, "--output", help="JSON output path (default: data/processed/solution.json)"
 )
+_BalanceFilterOpt = typer.Option(
+    "rdkit_balanced",
+    "--balance-filter",
+    help=(
+        "Which boolean column gates reactions: 'rdkit_balanced' (default, "
+        "strict atom-count) or 'balanced' (looser per-source claim)."
+    ),
+)
 
 
 @solver_app.command("run")
@@ -41,6 +49,7 @@ def solve(
     backend: str = _BackendOpt,
     verbose: bool = _VerboseOpt,
     output: Path | None = _OutputOpt,
+    balance_filter: str = _BalanceFilterOpt,
 ) -> None:
     """Solve the profit-maximization MILP on `data/processed/`."""
     cfg = load_config(config, override)
@@ -50,6 +59,7 @@ def solve(
         backend=backend,  # type: ignore[arg-type]
         verbose=verbose,
         output_path=output or processed_path(cfg, "solution.json"),
+        balance_filter=balance_filter,  # type: ignore[arg-type]
     )
 
     reactions = read_reactions(processed_path(cfg, "reactions.parquet"))

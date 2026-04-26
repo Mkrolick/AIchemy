@@ -83,6 +83,9 @@ def test_reaction_schema_accepts_valid_row() -> None:
             "delta_g": [None],
             "balanced": [True],
             "source": ["metanetx"],
+            "patent_active": [False],
+            "process_covered": [False],
+            "composition_covered": [False],
         },
         schema_overrides={"delta_g": pl.Float64},
     )
@@ -121,6 +124,7 @@ def test_write_empty_molecules_is_readable(tmp_path: Path) -> None:
         "carbon_count",
         "price_per_gram",
         "source_refs",
+        "is_class_resolved",
     }
 
 
@@ -138,5 +142,9 @@ def test_write_empty_reactions_is_readable(tmp_path: Path) -> None:
         "yield_rate",
         "delta_g",
         "balanced",
+        "rdkit_balanced",
         "source",
+        "patent_active",
+        "process_covered",
+        "composition_covered",
     }

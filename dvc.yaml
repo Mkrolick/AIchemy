@@ -69,12 +69,20 @@ stages:
     outs:
       - data/interim/balanced/reactions.parquet
 
+  drop_unbalanced:
+    cmd: uv run aichemy balance drop-unbalanced --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - data/interim/balanced/reactions.parquet
+    outs:
+      - data/interim/filtered/reactions.parquet
+
   balance_validate:
     cmd: uv run aichemy balance validate --config configs/default.yaml
     deps:
       - configs/default.yaml
       - src/aichemy/preprocessing/balance/validate.py
-      - data/interim/balanced/reactions.parquet
+      - data/interim/filtered/reactions.parquet
     outs:
       - data/interim/validated/reactions.parquet
 
