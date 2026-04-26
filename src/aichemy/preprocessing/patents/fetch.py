@@ -11,6 +11,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 import requests
@@ -30,7 +31,7 @@ class PatentMetadata:
     fetch_status: str  # "ok" | "not_found" | "error"
 
 
-PATENT_METADATA_SCHEMA = {
+PATENT_METADATA_SCHEMA: dict[str, Any] = {
     "patent_number": pl.Utf8,
     "filing_date": pl.Utf8,
     "grant_date": pl.Utf8,
@@ -108,7 +109,7 @@ def _fetch_batch(
     return [_error_record(pn) for pn in batch]
 
 
-def _parse_response(body: dict, batch: list[str]) -> list[PatentMetadata]:
+def _parse_response(body: dict[str, Any], batch: list[str]) -> list[PatentMetadata]:
     by_id: dict[str, PatentMetadata] = {}
     for p in body.get("patents") or []:
         pn = str(p.get("patent_number"))
