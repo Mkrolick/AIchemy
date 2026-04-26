@@ -8,8 +8,15 @@ tool-use schema to enforce structure rather than free-form JSON parsing.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
+
+import polars as pl
+
+from aichemy.preprocessing.patents.cache import LLMCacheEntry, append_cache, load_cache
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +54,9 @@ CLASSIFICATION_TOOL = {
             },
             "rationale": {
                 "type": "string",
-                "description": "One sentence citing the specific claim/passage that supports the answer.",
+                "description": (
+                    "One sentence citing the specific claim/passage that supports the answer."
+                ),
             },
         },
         "required": ["process_covered", "composition_covered", "confidence", "rationale"],
@@ -102,9 +111,7 @@ def classify_patent_llm(
         messages=[{"role": "user", "content": user}],
     )
     if msg.stop_reason != "tool_use":
-        log.warning(
-            "Unexpected stop_reason=%s for patent=%s", msg.stop_reason, patent_number
-        )
+        log.warning("Unexpected stop_reason=%s for patent=%s", msg.stop_reason, patent_number)
         return None
     for block in msg.content:
         if getattr(block, "type", None) == "tool_use" and block.name == "report_classification":
@@ -117,14 +124,6 @@ def classify_patent_llm(
             )
     return None
 
-
-import time
-from datetime import datetime, timezone
-from pathlib import Path
-
-import polars as pl
-
-from aichemy.preprocessing.patents.cache import LLMCacheEntry, append_cache, load_cache
 
 LLM_CLASSIFICATION_SCHEMA = {
     "patent_number": pl.Utf8,
@@ -204,7 +203,7 @@ def classify_ambiguous_patents(
             confidence=result.confidence,
             rationale=result.rationale,
             model=model,
-            ts=datetime.now(tz=timezone.utc).isoformat(),
+            ts=datetime.now(tz=UTC).isoformat(),
         )
         append_cache(cache_path, entry)
         rows.append(_to_row(entry, cache_hit=False))
@@ -252,7 +251,10 @@ def _call_with_retry(
         except Exception as exc:
             log.warning(
                 "LLM call failed (attempt %d/%d) for patent=%s: %s",
-                attempt + 1, max_retries, patent_number, exc,
+                attempt + 1,
+                max_retries,
+                patent_number,
+                exc,
             )
             if attempt < max_retries - 1:
                 time.sleep(backoff_seconds * (2**attempt))
