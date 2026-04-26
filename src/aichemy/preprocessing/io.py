@@ -33,6 +33,9 @@ class Reaction(pt.Model):
     delta_g: float | None = None
     balanced: bool
     source: str  # "metanetx" | "uspto"
+    patent_active: bool = False
+    process_covered: bool = False
+    composition_covered: bool = False
 
 
 def resolve_data_dir(config: PreprocessingConfig) -> Path:
@@ -53,6 +56,14 @@ def interim_path(config: PreprocessingConfig, *parts: str) -> Path:
 
 def processed_path(config: PreprocessingConfig, *parts: str) -> Path:
     return resolve_data_dir(config).joinpath("processed", *parts)
+
+
+def patents_path(config: PreprocessingConfig, *parts: str) -> Path:
+    return resolve_data_dir(config).joinpath("interim", "patents", *parts)
+
+
+def licenses_path(config: PreprocessingConfig, *parts: str) -> Path:
+    return resolve_data_dir(config).joinpath("interim", "licenses", *parts)
 
 
 MOLECULE_SCHEMA = {
@@ -78,6 +89,9 @@ REACTION_SCHEMA = {
     "balanced": pl.Boolean,
     "rdkit_balanced": pl.Boolean,
     "source": pl.Utf8,
+    "patent_active": pl.Boolean,
+    "process_covered": pl.Boolean,
+    "composition_covered": pl.Boolean,
 }
 
 
