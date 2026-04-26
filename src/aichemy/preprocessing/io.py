@@ -76,6 +76,7 @@ REACTION_SCHEMA = {
     "yield_rate": pl.Float64,
     "delta_g": pl.Float64,
     "balanced": pl.Boolean,
+    "rdkit_balanced": pl.Boolean,
     "source": pl.Utf8,
 }
 

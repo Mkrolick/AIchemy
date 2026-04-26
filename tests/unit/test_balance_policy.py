@@ -55,7 +55,7 @@ def test_validate_policy_flag_keeps_unbalanced_as_false() -> None:
     )
     out = validate_reactions(df, unbalanced_policy=UnbalancedPolicy.FLAG)
     assert out.height == 1
-    assert out["balanced"].to_list() == [False]
+    assert out["rdkit_balanced"].to_list() == [False]
 
 
 def test_validate_policy_drop_removes_unbalanced() -> None:
@@ -86,4 +86,4 @@ def test_validate_policy_heuristic_h_flips_proton_imbalance_to_true() -> None:
         }
     )
     out = validate_reactions(df, unbalanced_policy=UnbalancedPolicy.HEURISTIC_H)
-    assert out["balanced"].to_list() == [True]
+    assert out["rdkit_balanced"].to_list() == [True]

@@ -211,7 +211,11 @@ def validate_reactions(
         balanced_vals.append(False)
         keep_mask.append(unbalanced_policy != UnbalancedPolicy.DROP)
 
-    out = df.with_columns(pl.Series("balanced", balanced_vals, dtype=pl.Boolean))
+    # Write the strict atom-count result to `rdkit_balanced`. The upstream
+    # `balanced` column is preserved as-is — it carries the per-source
+    # claim (SYN-RBL conf>0.8 for USPTO, curator is_balanced=B for MetaNetX).
+    # `rdkit_balanced` is the trusted per-element mass-balance check.
+    out = df.with_columns(pl.Series("rdkit_balanced", balanced_vals, dtype=pl.Boolean))
     if unbalanced_policy == UnbalancedPolicy.DROP:
         out = out.filter(pl.Series("_keep", keep_mask, dtype=pl.Boolean))
     return out
