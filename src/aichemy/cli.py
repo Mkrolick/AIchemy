@@ -18,6 +18,7 @@ from aichemy.preprocessing.augment.directionality import DirectionalityMode
 from aichemy.preprocessing.balance import validate as balance_validate_module
 from aichemy.preprocessing.io import (
     interim_path,
+    patents_path,
     processed_path,
     raw_path,
     read_molecules,
@@ -34,10 +35,12 @@ ingest_app = typer.Typer(help="Ingest raw data from a source.")
 dedup_app = typer.Typer(help="Deduplicate molecules or reactions.")
 balance_app = typer.Typer(help="Balance and validate reaction atom counts.")
 augment_app = typer.Typer(help="Enrich the merged table with yields, prices, directionality.")
+patents_app = typer.Typer(help="Patent metadata fetching and license classification.")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(dedup_app, name="dedup")
 app.add_typer(balance_app, name="balance")
 app.add_typer(augment_app, name="augment")
+app.add_typer(patents_app, name="patents")
 app.add_typer(solver_app, name="solve")
 
 
@@ -608,6 +611,37 @@ def augment_directionality(
         augmented = df  # nothing to do without direction annotation
     write_reactions(augmented, output_path)
     typer.echo(f"[augment directionality] wrote {augmented.height} rows.")
+
+
+@patents_app.command("fetch")
+def patents_fetch(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Fetch PatentsView metadata for every USPTO patent referenced by reactions."""
+    from aichemy.preprocessing.patents.fetch import (
+        fetch_patents,
+        write_metadata_parquet,
+    )
+
+    cfg = _load(config, override)
+    reactions = read_reactions(interim_path(cfg, "augmented", "reactions_full.parquet"))
+
+    uspto_rxns = reactions.filter(pl.col("source") == "uspto")
+    patent_numbers = sorted({rid.split(":")[1] for rid in uspto_rxns["rxn_id"].to_list()})
+    typer.echo(f"[patents fetch] {len(patent_numbers)} unique USPTO patents to fetch")
+
+    items = fetch_patents(
+        patent_numbers,
+        endpoint=cfg.licenses.patentsview_endpoint,
+        max_retries=cfg.licenses.fetch_max_retries,
+        batch_size=cfg.licenses.fetch_batch_size,
+    )
+    out_path = patents_path(cfg, "patent_metadata.parquet")
+    write_metadata_parquet(items, out_path)
+
+    n_ok = sum(1 for p in items if p.fetch_status == "ok")
+    typer.echo(f"[patents fetch] wrote {len(items)} rows ({n_ok} ok) → {out_path}")
 
 
 @app.command("export")
