@@ -140,6 +140,32 @@ def test_handles_multiline_tag_values(tmp_path) -> None:
     rec = next(iter_sdf_records(p))
     assert rec["NOTES"] == ["line one", "line two", "line three"]
     assert rec["X"] == ["1"]
+
+
+def test_reads_sdf_gz_transparently(tmp_path) -> None:
+    """The PubChem dump ships .sdf.gz; without gzip detection, opening deflate
+    bytes as 'rt' with errors='replace' silently yields zero records — every
+    downstream lookup returns None for the wrong reason. Lock that closed."""
+    import gzip
+    sdf_text = textwrap.dedent("""\
+        Aspirin
+        > <PUBCHEM_IUPAC_INCHIKEY>
+        BSYNRYMUTXBXSQ-UHFFFAOYSA-N
+
+        > <PUBCHEM_EXT_DATASOURCE_NAME>
+        Sigma-Aldrich
+
+        > <PUBCHEM_EXT_DATASOURCE_REGID>
+        A2093
+
+        $$$$
+        """)
+    p = tmp_path / "tiny.sdf.gz"
+    with gzip.open(p, "wt") as f:
+        f.write(sdf_text)
+    records = list(iter_sdf_records(p))
+    assert len(records) == 1
+    assert records[0]["PUBCHEM_IUPAC_INCHIKEY"] == ["BSYNRYMUTXBXSQ-UHFFFAOYSA-N"]
 ```
 
 - [ ] **Step 3: Run; ImportError**
@@ -148,11 +174,26 @@ def test_handles_multiline_tag_values(tmp_path) -> None:
 
 ```python
 # src/aichemy_pricing/resolvers/_sdf.py
-"""Streaming SDF parser. Memory-bounded: yields one dict-of-tags per `$$$$`."""
+"""Streaming SDF parser. Memory-bounded: yields one dict-of-tags per `$$$$`.
+
+Handles both plain-text `.sdf` and gzipped `.sdf.gz` files transparently —
+the PubChem FTP dump (CLAIM-04) ships 982 `.sdf.gz` files, and sub-plan E's
+AIchemy backend integration globs `*.sdf*` so both extensions reach this
+parser. Without gzip detection, opening deflate bytes as `errors="replace"`
+text silently yields zero records (no UnicodeDecodeError, no log line) and
+every downstream price lookup returns None for the wrong reason.
+"""
 from __future__ import annotations
 
+import gzip
 from collections.abc import Iterator
 from pathlib import Path
+
+
+def _open_text(path: Path):  # type: ignore[no-untyped-def]
+    if path.suffix == ".gz":
+        return gzip.open(path, "rt", errors="replace")
+    return path.open("rt", errors="replace")
 
 
 def iter_sdf_records(path: Path) -> Iterator[dict[str, list[str]]]:
@@ -161,10 +202,11 @@ def iter_sdf_records(path: Path) -> Iterator[dict[str, list[str]]]:
     Records are delimited by lines containing only `$$$$`. Tag values are the
     lines following `> <TAG>` up to the next blank line. Records without a
     trailing `$$$$` are not yielded (defensive behavior for truncated dumps).
+    `.sdf.gz` files are opened transparently via gzip.
     """
     record: dict[str, list[str]] = {}
     current_tag: str | None = None
-    with path.open("rt", errors="replace") as f:
+    with _open_text(path) as f:
         for raw in f:
             line = raw.rstrip("\n")
             if line == "$$$$":
@@ -765,11 +807,11 @@ git commit -m "feat(pricing): ZincTrancheResolver — InChIKey → multi-vendor 
 
 | Test file | Test count | Notes |
 |---|---:|---|
-| `test_sdf_parser.py` | 3 | Two-record parse; multiline values; truncated-record handling |
+| `test_sdf_parser.py` | 4 | Two-record parse; multiline values; truncated-record handling; **.sdf.gz transparent read (Revision 22)** |
 | `test_resolvers_pubchem.py` | 5 | Indexing; per-hit shape; allowed_sources filter; unknown-IK; URL field |
 | `test_resolvers_enamine.py` | 3 | Indexing + URL construction; bare-id normalization to EN300-*; unknown-IK |
 | `test_resolvers_zinc.py` | 5 + 1 `live` | Synthetic SMI parse; missing-IK skip; **alternate column order**; **rejects malformed IK**; multi-vendor split; (live) real-fixture must produce ≥1 hit |
-| **Total** | **16 + 1 live** | All offline unit tests run in <2s. |
+| **Total** | **17 + 1 live** | All offline unit tests run in <2s. |
 
 **All-tests command:**
 ```bash

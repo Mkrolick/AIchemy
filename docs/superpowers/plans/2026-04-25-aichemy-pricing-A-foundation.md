@@ -41,11 +41,11 @@ src/aichemy_pricing/
     ├── __init__.py                               # CREATE — empty
     ├── conftest.py                               # CREATE — `live` marker, fixture_dir
     ├── data/.gitkeep                             # CREATE
-    ├── test_types.py                             # CREATE (3 tests)
-    ├── test_ratelimit.py                         # CREATE (1 test)
-    ├── test_chain.py                             # CREATE (2 tests)
-    ├── test_cache.py                             # CREATE (2 tests)
-    └── test_http.py                              # CREATE (2 tests)
+    ├── test_types.py                             # CREATE (7 tests)
+    ├── test_ratelimit.py                         # CREATE (3 tests)
+    ├── test_chain.py                             # CREATE (4 tests, incl. R17 exception-swallow)
+    ├── test_cache.py                             # CREATE (4 tests)
+    └── test_http.py                              # CREATE (3 tests)
 ```
 
 ---
@@ -83,6 +83,32 @@ In `[project.scripts]`:
 ```toml
 aichemy-price = "aichemy_pricing.cli:app"
 ```
+
+- [ ] **Step 3b: Extend hatch/mypy/pytest scopes to include the new package**
+
+`pyproject.toml` has three blocks scoped to `src/aichemy` only. Without these edits, the built wheel ships the `aichemy-price` entry point but **not** the `aichemy_pricing` module (so a fresh `pip install` fails with `ModuleNotFoundError`), and bare `mypy` / `pytest` invocations silently skip the new package.
+
+Update each of the three lists to include `src/aichemy_pricing`:
+
+```toml
+[tool.hatch.build.targets.wheel]
+packages = ["src/aichemy", "src/aichemy_pricing"]
+
+[tool.mypy]
+files = ["src/aichemy", "src/aichemy_pricing"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "src/aichemy_pricing/tests"]
+```
+
+Verify the wheel actually contains the new module after Task A1:
+
+```bash
+uv build --wheel
+unzip -l dist/aichemy-*.whl | grep aichemy_pricing | head
+```
+
+Expected: lists `aichemy_pricing/__init__.py`, `aichemy_pricing/_version.py`, etc. If empty, the hatch packages list isn't taking effect.
 
 - [ ] **Step 4: Verify dev tooling (no edit required)**
 
@@ -1056,7 +1082,7 @@ git commit -m "feat(pricing): shared fixture-capture validator (_capture.py)"
 ```bash
 uv run pytest src/aichemy_pricing/tests/ -v
 ```
-Expected: 20 passed in <3s.
+Expected: 21 passed in <3s.
 
 **Type-check:**
 ```bash
