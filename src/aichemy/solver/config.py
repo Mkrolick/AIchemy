@@ -57,13 +57,5 @@ class SolverConfig(BaseModel):
     # Verbosity
     verbose: bool = False
 
-    # Royalty rate on process-covered reaction revenue (decimal, 0.0–1.0).
-    # Default 0.0 means current behavior is unchanged when license data
-    # is absent or rates aren't passed.
-    r_process: float = 0.0
-
-    # Royalty rate on composition-covered product revenue (decimal, 0.0–1.0).
-    r_comp: float = 0.0
-
     # Where to write the JSON summary of the solved problem.
     output_path: Path = Field(default_factory=lambda: Path("data/processed/solution.json"))
