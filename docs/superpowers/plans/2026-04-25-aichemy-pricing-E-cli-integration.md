@@ -454,6 +454,21 @@ def test_cli_lookup_returns_1_when_no_quote(runner: CliRunner, monkeypatch) -> N
     monkeypatch.setitem(cli_module._VENDORS, "miss", MissVendor)
     res = runner.invoke(app, ["lookup", "miss", "x"])
     assert res.exit_code == 1
+
+
+def test_cli_lookup_placeholder_vendor_returns_2(runner: CliRunner, monkeypatch) -> None:
+    """Vendors with unfilled discovery placeholders raise NotImplementedError
+    from __init__ (Revision 6 fail-loud guard). The CLI must surface a clean
+    typer.Exit(2), not a bare Python traceback."""
+    class _Placeholder:
+        name = "placeholder"
+        def __init__(self) -> None:
+            raise NotImplementedError("placeholder._API_URL not yet discovered")
+
+    monkeypatch.setitem(cli_module._VENDORS, "placeholder", _Placeholder)
+    res = runner.invoke(app, ["lookup", "placeholder", "X"])
+    assert res.exit_code == 2
+    assert "discovery placeholder" in (res.stdout + res.stderr).lower()
 ```
 
 - [ ] **Step 2: Implement**
@@ -526,7 +541,15 @@ def lookup(
             f"Unknown vendor: {vendor!r}; choose from {sorted(_VENDORS)}", err=True,
         )
         raise typer.Exit(2)
-    v = _VENDORS[vendor]()
+    try:
+        v = _VENDORS[vendor]()
+    except NotImplementedError as exc:
+        # Discovery placeholder unfilled (Revision 6 fail-loud guard on
+        # EnamineVendor / CaymanVendor). Surface as a clean exit rather than
+        # a bare Python traceback — symmetric with `chain` (Revision 9) and
+        # `build_default_chain` (Revision 16).
+        typer.echo(f"{vendor}: discovery placeholder unfilled — {exc}", err=True)
+        raise typer.Exit(2)
     quote = v.lookup(VendorRef(vendor=vendor, sku=sku))
     if quote is None:
         typer.echo("no quote (404 / unparseable / not stocked)", err=True)
@@ -616,11 +639,45 @@ git commit -m "feat(pricing): aichemy-price CLI (lookup, chain, resolve)"
 - Modify: `configs/default.yaml` (comment-only update)
 - Create: `tests/integration/test_pricing_package_integration.py`
 
-- [ ] **Step 1: Read current `make_lookup` factory**
+- [ ] **Step 1: Read current `make_lookup` factory + the config schema it consumes**
 
 ```bash
 grep -n "def make_lookup\|backend" src/aichemy/preprocessing/augment/prices.py | head -30
+grep -n "class PricesConfig\|backend.*Literal\|extra.*forbid" src/aichemy/config.py
 ```
+
+Note: `PricesConfig` in `src/aichemy/config.py` declares `model_config = {"extra": "forbid"}` and `backend: Literal["stub", "chained"]`. Both must be widened **before** Step 2/3 edits — otherwise YAML and CLI commands fail at config-load with a Pydantic ValidationError.
+
+- [ ] **Step 1b: Widen `PricesConfig` schema in `src/aichemy/config.py`**
+
+Add a new typed sub-config and extend the Literal:
+
+```python
+class AichemyPricingConfig(BaseModel):
+    """Backend-specific config for the standalone `aichemy_pricing` package.
+
+    Path fields point at the offline catalog (PubChem SDF dir + a SQLite cache
+    location). Free-form sub-keys are forbidden so typos surface at load time.
+    """
+    model_config = {"extra": "forbid"}
+
+    catalog_dir: Path = Field(default_factory=lambda: Path("data/raw/pubchem_substance"))
+    cache_path: Path = Field(default_factory=lambda: Path("data/interim/aichemy_pricing_cache.sqlite"))
+
+
+class PricesConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    backend: Literal["stub", "chained", "aichemy_pricing"] = "chained"  # ← widen
+    chain: list[str] = Field(default_factory=lambda: ["curated", "pubchem"])
+    cache_path: Path = Field(default_factory=lambda: Path("data/interim/prices_cache.sqlite"))
+    cache_ttl_days: int = 30
+    pubchem: PubChemConfig = Field(default_factory=PubChemConfig)
+    scraper: ScraperConfig = Field(default_factory=ScraperConfig)
+    aichemy_pricing: AichemyPricingConfig = Field(default_factory=AichemyPricingConfig)  # ← add
+```
+
+Add a unit test in `tests/unit/test_config.py` that loads `configs/default.yaml` and asserts `cfg.prices.backend in {"stub", "chained", "aichemy_pricing"}` and `cfg.prices.aichemy_pricing.catalog_dir.name == "pubchem_substance"`. Without this, a future regression that drops the field from the schema would only surface as a CLI runtime error.
 
 - [ ] **Step 2: Add `aichemy_pricing` backend branch + `_InchikeyAdapter`**
 
@@ -641,7 +698,12 @@ Append to `src/aichemy/preprocessing/augment/prices.py`:
 
 # Static FX table (USD per 1 unit of foreign currency). Documented as-of date
 # matters: rates drift; refresh quarterly or wire a live FX source.
-# Source: ECB reference rates 2026-04-25.
+# Source: ECB reference rates on _FX_AS_OF below.
+import datetime as _dt  # local alias to avoid polluting public module namespace
+
+_FX_AS_OF: _dt.date = _dt.date(2026, 4, 25)
+_FX_MAX_AGE = _dt.timedelta(days=120)
+
 _FX_TO_USD_AS_OF_2026_04_25: dict[str, float] = {
     "USD": 1.000,
     "GBP": 1.330,   # 1 GBP = 1.33 USD
@@ -650,6 +712,24 @@ _FX_TO_USD_AS_OF_2026_04_25: dict[str, float] = {
     "JPY": 0.0064,
     "SEK": 0.094,
 }
+
+
+def _check_fx_freshness() -> None:
+    """Emit a single warning at module-import time if the FX table is older
+    than the freshness threshold. Without this, prices silently compound drift
+    over months — CNY in particular moves 5–10% intra-year. The 30-day quote
+    cache TTL means a stale table is used for every quote captured during the
+    cache window, then re-multiplied at the same rate when re-fetched."""
+    age = _dt.date.today() - _FX_AS_OF
+    if age > _FX_MAX_AGE:
+        log.warning(
+            "aichemy_pricing FX table is %d days old (as-of %s, max-age %d days). "
+            "Refresh ECB reference rates and bump _FX_AS_OF, or wire a live FX feed.",
+            age.days, _FX_AS_OF.isoformat(), _FX_MAX_AGE.days,
+        )
+
+
+_check_fx_freshness()
 
 
 class _InchikeyAdapter:
@@ -679,7 +759,11 @@ class _InchikeyAdapter:
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             return None
-        inchikey = Chem.MolToInchiKey(mol)
+        try:
+            inchikey = Chem.MolToInchiKey(mol)
+        except Exception as exc:  # InChI lib raises on radicals/non-standard valences
+            log.warning("MolToInchiKey raised on %r: %s", smiles, exc)
+            return None
         if not inchikey:
             return None
         quote = self._inner.lookup(inchikey)
@@ -937,20 +1021,20 @@ git commit --allow-empty -m "test(pricing): end-to-end verification — all offl
 |---|---:|---|
 | `test_lookup_by_inchikey.py` | 3 | First priced vendor wins; no resolver hits → None; no chain hits → None |
 | `test_build_default_chain.py` | 3 | Returns `CachedPriceLookup(ChainedPriceLookup(...))`; excluded vendors absent; **placeholder vendors skipped with warning (Revision 16)** |
-| `test_cli.py` | 5 | `--version`; unknown vendor → exit 2; lookup dispatch; `--json` flag; no-quote → exit 1 |
+| `test_cli.py` | 6 | `--version`; unknown vendor → exit 2; lookup dispatch; `--json` flag; no-quote → exit 1; **placeholder vendor → exit 2 with clean message (Revision 27)** |
 | `tests/integration/test_pricing_package_integration.py` | 2 | FX-table covers every Currency literal; pipeline backend round-trips a Fluorochem fixture quote |
-| **Total** | **13** | All offline; no `live` markers in this sub-plan. |
+| **Total** | **14** | All offline; no `live` markers in this sub-plan. |
 
 **Cumulative test counts across all sub-plans:**
 
 | Sub-plan | Offline | Live |
 |---|---:|---:|
 | A | 21 | 0 |
-| B | 16 | 1 |
+| B | 17 | 1 |
 | C | 15 | 3 |
 | D | 16 | 4 |
-| E | 13 | 0 |
-| **Total** | **81** | **8** |
+| E | 14 | 0 |
+| **Total** | **83** | **8** |
 
 **All tests:**
 ```bash
