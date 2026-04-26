@@ -9,8 +9,8 @@ stages:
       size: 866
     - path: src/aichemy/cli.py
       hash: md5
-      md5: 3b3125b104592c1de411a8b0f034bffa
-      size: 22377
+      md5: 1a36c0382f1babb207085f9925db0973
+      size: 24481
     outs:
     - path: data/raw/metanetx
       hash: md5
@@ -19,9 +19,9 @@ stages:
       nfiles: 4
     - path: data/raw/uspto
       hash: md5
-      md5: cfa6d5aea4ded860540421874e9ea14f.dir
-      size: 75191394
-      nfiles: 1
+      md5: ccca6071cdabc5f1ed2fc96f5aa861c5.dir
+      size: 871956705
+      nfiles: 2
   ingest_metanetx:
     cmd: uv run aichemy ingest metanetx --config configs/default.yaml
     deps:
@@ -61,13 +61,13 @@ stages:
       nfiles: 2
     - path: src/aichemy/preprocessing/sources/uspto.py
       hash: md5
-      md5: 248102409dfe28fa7952e47ffc4b844d
-      size: 4364
+      md5: 0ab721fca07b4f45fee28ae6f8a95110
+      size: 4728
     outs:
     - path: data/interim/uspto/reactions_raw.parquet
       hash: md5
-      md5: 1d0415f4178478306703ec80587e81f2
-      size: 283180057
+      md5: 03eeb7d992fa5e259ee6561517c8a7b6
+      size: 278353348
   normalize:
     cmd: uv run aichemy normalize --config configs/default.yaml
     deps:
