@@ -16,6 +16,7 @@ Real price scraping requires both `backend="chained"` AND
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import logging
 import sqlite3
@@ -373,9 +374,7 @@ def make_lookup(config: PreprocessingConfig) -> PriceLookup:
 
         catalog_dir = Path(cfg.aichemy_pricing.catalog_dir)
         cache_path = Path(cfg.aichemy_pricing.cache_path)
-        sdf_files = sorted(
-            list(catalog_dir.glob("*.sdf")) + list(catalog_dir.glob("*.sdf.gz"))
-        )
+        sdf_files = sorted(list(catalog_dir.glob("*.sdf")) + list(catalog_dir.glob("*.sdf.gz")))
         if not sdf_files:
             log.warning(
                 "aichemy_pricing backend selected but no SDFs found under %s; "
@@ -384,8 +383,8 @@ def make_lookup(config: PreprocessingConfig) -> PriceLookup:
             )
             return StubPriceLookup()
         resolver = PubChemSdfResolver.from_files(sdf_files)
-        chain = build_default_chain(cache_path=cache_path)
-        return _InchikeyAdapter(LookupByInchikey(resolver=resolver, chain=chain))
+        pricing_chain = build_default_chain(cache_path=cache_path)
+        return _InchikeyAdapter(LookupByInchikey(resolver=resolver, chain=pricing_chain))
 
     lookups: list[PriceLookup] = []
     for name in cfg.chain:
@@ -471,8 +470,6 @@ def augment_prices(
 # native currency + pack size) onto AIchemy's PriceLookup protocol (SMILES ->
 # USD/g float). Static FX table; refresh quarterly or wire a live FX feed.
 
-import datetime as _dt  # local alias to avoid leaking 'date' into the module ns
-
 _FX_AS_OF: _dt.date = _dt.date(2026, 4, 25)
 _FX_MAX_AGE = _dt.timedelta(days=120)
 
@@ -481,11 +478,11 @@ _FX_MAX_AGE = _dt.timedelta(days=120)
 # the integration test asserts coverage via typing.get_args(Currency).
 _FX_TO_USD_AS_OF_2026_04_25: dict[str, float] = {
     "USD": 1.000,
-    "GBP": 1.330,    # 1 GBP = 1.33 USD
-    "EUR": 1.090,    # 1 EUR = 1.09 USD
-    "CNY": 0.138,    # 1 CNY = 0.138 USD
-    "JPY": 0.0064,   # 1 JPY = 0.0064 USD
-    "SEK": 0.094,    # 1 SEK = 0.094 USD
+    "GBP": 1.330,  # 1 GBP = 1.33 USD
+    "EUR": 1.090,  # 1 EUR = 1.09 USD
+    "CNY": 0.138,  # 1 CNY = 0.138 USD
+    "JPY": 0.0064,  # 1 JPY = 0.0064 USD
+    "SEK": 0.094,  # 1 SEK = 0.094 USD
 }
 
 
@@ -524,7 +521,7 @@ class _InchikeyAdapter:
     def __init__(
         self,
         inner: object,  # aichemy_pricing.LookupByInchikey — typed loosely so
-                        # this module imports cleanly without the pricing extra.
+        # this module imports cleanly without the pricing extra.
         fx_to_usd: dict[str, float] | None = None,
     ) -> None:
         self._inner = inner
@@ -537,7 +534,7 @@ class _InchikeyAdapter:
         if mol is None:
             return None
         try:
-            inchikey = Chem.MolToInchiKey(mol)
+            inchikey = Chem.MolToInchiKey(mol)  # type: ignore[no-untyped-call]
         except Exception as exc:  # InChI lib raises on radicals / odd valences
             log.warning("MolToInchiKey raised on %r: %s", smiles, exc)
             return None
@@ -554,4 +551,4 @@ class _InchikeyAdapter:
                 quote.currency,
             )
             return None
-        return quote.price_per_gram_native * rate
+        return float(quote.price_per_gram_native * rate)
