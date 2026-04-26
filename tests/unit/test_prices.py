@@ -413,3 +413,55 @@ def test_make_lookup_aichemy_pricing_passes_allowed_sources(
         assert captured["allowed_sources"] is None
     else:
         assert captured["allowed_sources"] == expected_kwarg
+
+
+def test_augment_prices_serial_default_unchanged() -> None:
+    """max_workers=1 must produce the same DataFrame as the prior serial
+    implementation (back-compat for existing DVC runs)."""
+    import polars as pl
+
+    from aichemy.preprocessing.augment.prices import StubPriceLookup, augment_prices
+
+    df = pl.DataFrame({"canonical_smiles": ["CCO", "CCO", "CCC", "O"]})
+    lookup = StubPriceLookup({"CCO": 0.003, "CCC": None, "O": 0.0001})
+    out = augment_prices(df, lookup, max_workers=1)
+    assert out.get_column("price_per_gram").to_list() == [0.003, 0.003, None, 0.0001]
+
+
+def test_augment_prices_parallel_dispatch_matches_serial() -> None:
+    """With max_workers > 1, the result DataFrame must be identical to the
+    serial result (deterministic regardless of thread scheduling)."""
+    import polars as pl
+
+    from aichemy.preprocessing.augment.prices import StubPriceLookup, augment_prices
+
+    smiles_unique = [f"C{i}" for i in range(50)]  # 50 unique
+    df = pl.DataFrame({"canonical_smiles": smiles_unique * 3})  # 150 rows, dedup → 50
+    prices = {s: float(i) for i, s in enumerate(smiles_unique)}
+    lookup = StubPriceLookup(prices)
+
+    serial = augment_prices(df, lookup, max_workers=1)
+    parallel = augment_prices(df, lookup, max_workers=10)
+    assert serial.equals(parallel)
+
+
+def test_augment_prices_parallel_actually_runs_concurrently() -> None:
+    """Sanity-check that max_workers>1 actually parallelizes: a lookup with a
+    100ms sleep should complete in <1s for 20 unique SMILES at max_workers=10
+    (vs ~2s serial). Loose assertion to avoid flake."""
+    import time
+
+    import polars as pl
+
+    from aichemy.preprocessing.augment.prices import augment_prices
+
+    class _SlowLookup:
+        def lookup(self, smiles: str) -> float | None:
+            time.sleep(0.1)
+            return 1.0
+
+    df = pl.DataFrame({"canonical_smiles": [f"C{i}" for i in range(20)]})
+    t0 = time.monotonic()
+    augment_prices(df, _SlowLookup(), max_workers=10)
+    elapsed = time.monotonic() - t0
+    assert elapsed < 1.0, f"parallel dispatch too slow: {elapsed:.2f}s (expected <1s)"
