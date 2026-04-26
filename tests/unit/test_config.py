@@ -150,12 +150,12 @@ def test_default_yaml_parses() -> None:
     cfg = load_config(default_path)
     expected = PreprocessingConfig()
     expected.prices.aichemy_pricing.allowed_sources = [
+        "Enamine",
         "Fluorochem",
         "MedChemExpress",
-        "Tocris Bioscience",
         "Molbase",
-        "Enamine",
         "Santa Cruz Biotechnology, Inc.",
+        "Tocris Bioscience",
     ]
     expected.prices.aichemy_pricing.max_workers = 100
     assert cfg == expected
@@ -208,21 +208,20 @@ def test_aichemy_pricing_config_rejects_max_workers_below_one() -> None:
         AichemyPricingConfig.model_validate({"max_workers": 0})
 
 
-def test_default_yaml_aichemy_pricing_block_has_curated_allowed_sources_and_workers(
-    tmp_path,
-) -> None:
-    from pathlib import Path
-
+def test_default_yaml_aichemy_pricing_block_has_curated_allowed_sources_and_workers() -> None:
     import yaml
 
-    from aichemy.config import PreprocessingConfig
-
-    raw = yaml.safe_load(Path("configs/default.yaml").read_text())
+    default_yaml_path = Path(__file__).resolve().parents[2] / "configs" / "default.yaml"
+    raw = yaml.safe_load(default_yaml_path.read_text())
     cfg = PreprocessingConfig.model_validate(raw)
     aip = cfg.prices.aichemy_pricing
-    # Curated vendor allowlist matches the L2/L3-priceable vendors we ship
-    # parsers/clients for. Avoids loading 491M PubChem records into RAM.
-    assert aip.allowed_sources is not None
-    assert "Fluorochem" in aip.allowed_sources
-    assert "Enamine" in aip.allowed_sources
-    assert aip.max_workers >= 1
+    # Locks in the curated vendor list — see configs/default.yaml for rationale.
+    assert aip.allowed_sources == [
+        "Enamine",
+        "Fluorochem",
+        "MedChemExpress",
+        "Molbase",
+        "Santa Cruz Biotechnology, Inc.",
+        "Tocris Bioscience",
+    ]
+    assert aip.max_workers == 100
