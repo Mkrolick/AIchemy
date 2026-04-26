@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import yaml
 
 from aichemy.config import LicensesConfig, load_config
