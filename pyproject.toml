@@ -112,3 +112,15 @@ disable_error_code = ["type-arg", "attr-defined"]
 module = ["aichemy.preprocessing.io"]
 disallow_subclassing_any = false
 disable_error_code = ["misc", "arg-type"]
+
+# aichemy_pricing tests intentionally pass invalid inputs to validators (lowercase
+# currency, dict-spread of base kwargs, unannotated stub classes); strict mode
+# is for the runtime modules, not the test suite. _capture is a developer
+# one-shot script that forwards argparse strings into curl_cffi's Literal-typed
+# Session(impersonate=...).
+[[tool.mypy.overrides]]
+module = ["aichemy_pricing.tests.*", "aichemy_pricing.tests.data._capture"]
+disallow_untyped_calls = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disable_error_code = ["arg-type", "no-untyped-def", "no-untyped-call", "var-annotated"]
