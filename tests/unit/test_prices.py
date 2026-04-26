@@ -346,3 +346,53 @@ def test_augment_prices_requires_canonical_smiles() -> None:
     df = pl.DataFrame({"mol_id": ["A"]})
     with pytest.raises(ValueError, match="canonical_smiles"):
         augment_prices(df, StubPriceLookup())
+
+
+def test_make_lookup_aichemy_pricing_passes_allowed_sources(monkeypatch, tmp_path) -> None:
+    """make_lookup must thread cfg.aichemy_pricing.allowed_sources into
+    PubChemSdfResolver.from_files(). Without this, full-corpus PubChem loads
+    OOM regardless of the config setting."""
+    from aichemy.config import (
+        AichemyPricingConfig,
+        PreprocessingConfig,
+        PricesConfig,
+    )
+    from aichemy.preprocessing.augment import prices as prices_mod
+
+    # Stage one fake SDF so the empty-catalog fallback doesn't short-circuit.
+    sdf_dir = tmp_path / "pubchem"
+    sdf_dir.mkdir()
+    (sdf_dir / "stub.sdf").write_text("$$$$\n")  # empty record terminator only
+    cache_path = tmp_path / "c.sqlite"
+
+    captured: dict[str, object] = {}
+
+    def fake_from_files(paths, allowed_sources=None):
+        captured["paths"] = list(paths)
+        captured["allowed_sources"] = allowed_sources
+        # return a resolver that resolves nothing
+        from aichemy_pricing.resolvers.pubchem_sdf import PubChemSdfResolver
+
+        return PubChemSdfResolver()
+
+    monkeypatch.setattr(
+        "aichemy_pricing.resolvers.pubchem_sdf.PubChemSdfResolver.from_files",
+        fake_from_files,
+    )
+
+    cfg = PreprocessingConfig(
+        prices=PricesConfig(
+            backend="aichemy_pricing",
+            aichemy_pricing=AichemyPricingConfig(
+                catalog_dir=sdf_dir,
+                cache_path=cache_path,
+                allowed_sources=["Fluorochem", "Enamine"],
+                max_workers=4,
+            ),
+        ),
+    )
+
+    prices_mod.make_lookup(cfg)
+    # Resolver's `from_files(allowed_sources=...)` signature takes `set[str] | None`,
+    # so production code converts the YAML list. Compare as sets to be permissive.
+    assert captured["allowed_sources"] == {"Fluorochem", "Enamine"}
