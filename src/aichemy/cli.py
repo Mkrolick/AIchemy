@@ -8,6 +8,7 @@ import typer
 from aichemy.config import PreprocessingConfig, load_config
 from aichemy.preprocessing import export as export_module
 from aichemy.preprocessing.augment import directionality as directionality_module
+from aichemy.preprocessing.augment import licenses as licenses_module
 from aichemy.preprocessing.augment import prices as prices_module
 from aichemy.preprocessing.augment import (
     prices_scrapers as _prices_scrapers,  # noqa: F401 — side effect: registers scrapers
@@ -612,6 +613,61 @@ def augment_directionality(
         augmented = df  # nothing to do without direction annotation
     write_reactions(augmented, output_path)
     typer.echo(f"[augment directionality] wrote {augmented.height} rows.")
+
+
+@augment_app.command("licenses")
+def augment_licenses_cmd(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Merge CPC + LLM license classifications onto reactions."""
+    cfg = _load(config, override)
+    input_path = interim_path(cfg, "augmented", "reactions_full.parquet")
+    output_path = interim_path(cfg, "augmented", "reactions_licensed.parquet")
+
+    if not input_path.exists():
+        write_empty_reactions(output_path)
+        typer.echo(f"[augment licenses] upstream {input_path} missing; wrote empty parquet.")
+        return
+
+    reactions = read_reactions(input_path)
+    cpc_path = licenses_path(cfg, "cpc_classifications.parquet")
+    llm_path = licenses_path(cfg, "llm_classifications.parquet")
+
+    if cpc_path.exists():
+        cpc = pl.read_parquet(cpc_path)
+    else:
+        cpc = pl.DataFrame(
+            schema={
+                "rxn_id": pl.Utf8,
+                "patent_number": pl.Utf8,
+                "patent_active": pl.Boolean,
+                "cpc_ambiguous": pl.Boolean,
+                "process_covered_cpc": pl.Boolean,
+                "composition_covered_cpc": pl.Boolean,
+            }
+        )
+
+    if llm_path.exists():
+        llm = pl.read_parquet(llm_path)
+    else:
+        llm = pl.DataFrame(
+            schema={
+                "patent_number": pl.Utf8,
+                "process_covered": pl.Boolean,
+                "composition_covered": pl.Boolean,
+            }
+        )
+
+    out = licenses_module.augment_licenses(reactions, cpc, llm)
+    write_reactions(out, output_path)
+
+    n_proc = int(out["process_covered"].sum())
+    n_comp = int(out["composition_covered"].sum())
+    typer.echo(
+        f"[augment licenses] {out.height} reactions "
+        f"({n_proc} process-covered, {n_comp} composition-covered) → {output_path}"
+    )
 
 
 @patents_app.command("fetch")
