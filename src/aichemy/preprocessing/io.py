@@ -62,6 +62,9 @@ MOLECULE_SCHEMA = {
     "carbon_count": pl.Int64,
     "price_per_gram": pl.Float64,
     "source_refs": pl.List(pl.Utf8),
+    # Set True by normalize when a wildcard SMILES was rewritten to a concrete
+    # exemplar via the class-metabolite resolver. Downstream stages may ignore.
+    "is_class_resolved": pl.Boolean,
 }
 
 REACTION_SCHEMA = {

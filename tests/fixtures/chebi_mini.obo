@@ -1,0 +1,34 @@
+format-version: 1.2
+ontology: chebi-mini-test
+
+[Term]
+id: CHEBI:35366
+name: fatty acid
+def: "Any aliphatic monocarboxylic acid." [test]
+is_a: CHEBI:25384 ! monocarboxylic acid
+
+[Term]
+id: CHEBI:15756
+name: hexadecanoic acid
+def: "Palmitate / palmitic acid." [test]
+is_a: CHEBI:35366 ! fatty acid
+property_value: http://purl.obolibrary.org/obo/chebi/smiles "CCCCCCCCCCCCCCCC(=O)O" xsd:string
+property_value: http://purl.obolibrary.org/obo/chebi/inchikey "IPCSVZSSVZVIGE-UHFFFAOYSA-N" xsd:string
+
+[Term]
+id: CHEBI:30823
+name: oleic acid
+def: "An unsaturated fatty acid." [test]
+is_a: CHEBI:35366 ! fatty acid
+property_value: http://purl.obolibrary.org/obo/chebi/smiles "CCCCCCCC/C=C\\CCCCCCCC(=O)O" xsd:string
+property_value: http://purl.obolibrary.org/obo/chebi/inchikey "ZQPPMHVWECSIRJ-KTKRTIGZSA-N" xsd:string
+
+[Term]
+id: CHEBI:25384
+name: monocarboxylic acid
+
+[Term]
+id: CHEBI:99999
+name: orphan-no-children
+def: "A class with no concrete descendants." [test]
+is_a: CHEBI:25384 ! monocarboxylic acid
