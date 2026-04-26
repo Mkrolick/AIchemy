@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from aichemy_pricing.protocol import PriceLookup
@@ -82,7 +82,7 @@ class CachedPriceLookup:
         if row is not None:
             quote_json, fetched_at_iso = row
             fetched = datetime.fromisoformat(fetched_at_iso)
-            if datetime.now(timezone.utc) - fetched < self.ttl:
+            if datetime.now(UTC) - fetched < self.ttl:
                 return None if quote_json is None else PriceQuote.model_validate_json(quote_json)
         result = self.inner.lookup(ref)
         self._conn.execute(
@@ -92,7 +92,7 @@ class CachedPriceLookup:
                 ref.vendor,
                 ref.sku,
                 result.model_dump_json() if result else None,
-                datetime.now(timezone.utc).isoformat(),
+                datetime.now(UTC).isoformat(),
             ),
         )
         return result

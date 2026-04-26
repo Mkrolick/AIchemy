@@ -28,9 +28,7 @@ DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 
 def make_plain_client() -> httpx.Client:
-    return httpx.Client(
-        headers=DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT, follow_redirects=True
-    )
+    return httpx.Client(headers=DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT, follow_redirects=True)
 
 
 def make_cf_client():  # type: ignore[no-untyped-def]  # curl_cffi has no public type stubs

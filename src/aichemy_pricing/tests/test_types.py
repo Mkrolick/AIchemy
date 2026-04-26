@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
@@ -17,7 +17,7 @@ def test_price_quote_normalizes_currency_uppercase() -> None:
         price=230.0,
         currency="gbp",  # lowercase input
         pack_size_g=1.0,
-        fetched_at=datetime(2026, 4, 25, tzinfo=timezone.utc),
+        fetched_at=datetime(2026, 4, 25, tzinfo=UTC),
     )
     assert q.currency == "GBP"
     assert q.price_per_gram_native == 230.0
@@ -29,7 +29,7 @@ def test_price_quote_rejects_non_positive_price() -> None:
         sku="y",
         currency="USD",
         pack_size_g=1.0,
-        fetched_at=datetime.now(timezone.utc),
+        fetched_at=datetime.now(UTC),
     )
     with pytest.raises(ValidationError):
         PriceQuote(price=-1.0, **base)
@@ -45,7 +45,7 @@ def test_price_quote_rejects_non_positive_pack_size() -> None:
             price=1.0,
             currency="USD",
             pack_size_g=0.0,
-            fetched_at=datetime.now(timezone.utc),
+            fetched_at=datetime.now(UTC),
         )
 
 
@@ -76,6 +76,6 @@ def test_price_quote_per_gram_with_pack_size() -> None:
         price=300.0,
         currency="USD",
         pack_size_g=5.0,
-        fetched_at=datetime.now(timezone.utc),
+        fetched_at=datetime.now(UTC),
     )
     assert q.price_per_gram_native == 60.0

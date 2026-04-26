@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from aichemy_pricing.chain import ChainedPriceLookup
 from aichemy_pricing.types import PriceQuote, VendorRef
@@ -15,7 +15,7 @@ def _q(vendor: str = "x") -> PriceQuote:
         price=1.0,
         currency="USD",
         pack_size_g=1.0,
-        fetched_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        fetched_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 
 

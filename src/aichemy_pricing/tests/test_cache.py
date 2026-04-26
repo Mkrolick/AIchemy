@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from aichemy_pricing.chain import CachedPriceLookup
 from aichemy_pricing.types import PriceQuote, VendorRef
@@ -22,7 +22,7 @@ class _HitOnce:
             price=1.0,
             currency="USD",
             pack_size_g=1.0,
-            fetched_at=datetime.now(timezone.utc),
+            fetched_at=datetime.now(UTC),
         )
 
 
@@ -62,7 +62,7 @@ def test_cache_ttl_expiry_re_queries_inner(tmp_path) -> None:
     ref = VendorRef(vendor="x", sku="y")
     cache.lookup(ref)
     # Manually rewind the cached fetched_at by 60 days
-    past = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()
+    past = (datetime.now(UTC) - timedelta(days=60)).isoformat()
     cache._conn.execute("UPDATE quote_cache SET fetched_at = ?", (past,))
     cache.lookup(ref)
     assert inner.calls == 2
