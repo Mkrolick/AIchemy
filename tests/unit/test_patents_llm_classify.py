@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -13,7 +13,9 @@ from aichemy.preprocessing.patents.llm_classify import (
 )
 
 
-def _stub_anthropic_response(*, process: bool, composition: bool, confidence: float, rationale: str):
+def _stub_anthropic_response(
+    *, process: bool, composition: bool, confidence: float, rationale: str
+):
     """Build a mock that mimics anthropic.Anthropic().messages.create() returning tool-use."""
     block = MagicMock()
     block.type = "tool_use"
@@ -77,7 +79,7 @@ def test_classify_ambiguous_patents_uses_cache_when_present(tmp_path: Path):
             confidence=0.9,
             rationale="cached",
             model="claude-haiku-4-5",
-            ts=datetime.now(tz=timezone.utc).isoformat(),
+            ts=datetime.now(tz=UTC).isoformat(),
         ),
     )
     cpc = pl.DataFrame(
