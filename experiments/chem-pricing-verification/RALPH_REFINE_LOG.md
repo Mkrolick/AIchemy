@@ -40,3 +40,16 @@ Cumulative test counts post-Revisions-16-21: A 21, B 16+1, C 15+3, D 16+4, E 13 
 - [Revision 28] E-cli-integration — bug_005 (nit): static FX table had no freshness guard. Combined with 30-day quote cache, rates compound silent drift over months/years (CNY 5-10% intra-year). Added _FX_AS_OF: date constant + _FX_MAX_AGE = 120 days + _check_fx_freshness() module-init function that emits log.warning when stale.
 
 Cumulative test counts post-Revisions-22-28: A 21, B 17+1, C 15+3, D 16+4, E 14 = **83 offline + 8 live**.
+
+--- Post-Round-2 architectural pivot (Browserbase L3) ---
+
+After two rounds of ultrareview the plan was review-clean but still over-engineered for the real use case (100K mixed USPTO + MetaNetX, single research run). Pivoted the architecture:
+
+- **Added Sub-Plan F** (`2026-04-25-aichemy-pricing-F-browserbase-l3.md`): Browserbase Fetch API as L3 fallback. One HTTPS POST to `/v1/fetch` returns rendered markdown of any vendor product page; per-vendor markdown parsers (`parsers/{vendor}.py`) extract prices. Browser API + LLM extraction reserved as `NotImplementedError` stubs.
+- **Trimmed Sub-Plan D**: dropped Tasks D1 (Enamine), D2 (Cayman), D3 (ChemCruz) — they were Tier 2 vendors that needed manual DevTools discovery for XHR endpoints. Now they're L3 markdown parsers in F (zero discovery work). Only D4 (MedChemExpress via `curl_cffi`) remains as L2. Mapping note left in D so cross-references resolve: D1→F4, D2→F5, D3→F6.
+- **Updated Master plan**: architecture description now describes three-tier L1/L2/L3 model. Sub-plan table adds F. Going-live checklist removes "Sigma+TCI deferred to Tier-4" — Sigma is now reachable via L3 (Browserbase stealth + residential IPs handle Akamai); TCI similarly. Implementation-phases table updated.
+- **Updated Sub-Plan E `build_default_chain`**: `_DEFAULT_VENDOR_CLASSES` shrinks to 4 L2 vendors (Fluorochem, Tocris, Molbase, MedChemExpress). `BrowserbaseFetchLookup()` appended unconditionally as the L3 catch-all; constructor never raises (no-ops if `BROWSERBASE_API_KEY` env var unset).
+
+Cost rationale (verified against browserbase.com/pricing): Fetch API is $1/1K calls on Developer plan, $0.50/1K on Startup. For 100K compounds with ~50% L1+L2 hit-rate, L3 fires ~50K times → ~$25–$50 total Browserbase cost, ~30–40 min wall-clock at 100 concurrent. Well within research budget.
+
+Cumulative test counts post-pivot: A 21, B 17+1, C 15+3, D 4+1, F 21, E 14 = **92 offline + 5 live**.

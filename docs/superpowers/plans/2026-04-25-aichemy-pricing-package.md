@@ -10,10 +10,11 @@ This master plan is broken into 5 self-contained sub-plans. Each can be reviewed
 |---|---|---|---:|
 | **A** Foundation | [`2026-04-25-aichemy-pricing-A-foundation.md`](./2026-04-25-aichemy-pricing-A-foundation.md) | — | 21 + 0 |
 | **B** Offline resolvers | [`2026-04-25-aichemy-pricing-B-resolvers.md`](./2026-04-25-aichemy-pricing-B-resolvers.md) | A | 17 + 1 |
-| **C** Tier 1 vendors | [`2026-04-25-aichemy-pricing-C-tier1-vendors.md`](./2026-04-25-aichemy-pricing-C-tier1-vendors.md) | A | 15 + 3 |
-| **D** Tier 2+3 vendors | [`2026-04-25-aichemy-pricing-D-tier2-3-vendors.md`](./2026-04-25-aichemy-pricing-D-tier2-3-vendors.md) | A (parallel with B/C) | 16 + 4 |
-| **E** CLI + integration | [`2026-04-25-aichemy-pricing-E-cli-integration.md`](./2026-04-25-aichemy-pricing-E-cli-integration.md) | A, B, C, D | 14 + 0 |
-| **Total** | | | **83 + 8** |
+| **C** Tier 1 vendors (L2: Fluorochem, Tocris, Molbase) | [`2026-04-25-aichemy-pricing-C-tier1-vendors.md`](./2026-04-25-aichemy-pricing-C-tier1-vendors.md) | A | 15 + 3 |
+| **D** Tier 3 vendor (L2: MedChemExpress only) | [`2026-04-25-aichemy-pricing-D-tier2-3-vendors.md`](./2026-04-25-aichemy-pricing-D-tier2-3-vendors.md) | A (parallel with B/C/F) | 4 + 1 |
+| **F** Browserbase L3 fallback (Sigma, Enamine, Cayman, ChemCruz, Tocris fb, Molbase fb) | [`2026-04-25-aichemy-pricing-F-browserbase-l3.md`](./2026-04-25-aichemy-pricing-F-browserbase-l3.md) | A (parallel with B/C/D) | 21 + 0 |
+| **E** CLI + integration | [`2026-04-25-aichemy-pricing-E-cli-integration.md`](./2026-04-25-aichemy-pricing-E-cli-integration.md) | A, B, C, D, F | 14 + 0 |
+| **Total** | | | **92 + 5** |
 
 **Recommended execution DAG:**
 - A first.
@@ -26,9 +27,15 @@ The remainder of this document is the **architectural overview** the sub-plans r
 
 **Goal:** Build `aichemy-pricing`, a standalone Python package (importable, CLI-runnable, independently testable) that resolves a chemical identifier (InChIKey / SMILES / CAS) to a per-gram USD price via a tiered chain of verified vendor sources, then plug it into the AIchemy pipeline as a thin import.
 
-**Architecture:** Sibling package at `src/aichemy_pricing/` with its own `pyproject.toml` extras + console script + standalone pytest suite. Layered design: (1) **offline-catalog resolver** that JOINs InChIKey → vendor SKU using PubChem FTP / ZINC tranches / Enamine BB SDFs (zero scraping); (2) **tiered scraper chain** — Tier 1 plain-HTTP (Fluorochem JSON, Molbase, Tocris), Tier 2 JS-rendered/light-CF (Enamine, Cayman, ChemCruz), Tier 3 Cloudflare-aware (MedChemExpress via `curl_cffi`); (3) **chain + cache + protocol** ported from the existing `aichemy.preprocessing.augment.prices` driver. Every URL/schema fact is anchored to a `CLAIM-XX` verdict in `experiments/chem-pricing-verification/`.
+**Architecture:** Sibling package at `src/aichemy_pricing/` with its own `pyproject.toml` extras + console script + standalone pytest suite. **Three-tier lookup, single-chain composition:**
+- **L1 (cache):** `CachedPriceLookup` over SQLite. Hits free, instant.
+- **L2 (httpx):** Direct HTTPS to vendor APIs. Free, ~100 ms/lookup. Members: Fluorochem (Azure-blob JSON, no auth), Tocris + Molbase (SSR HTML), MedChemExpress (`curl_cffi` for Cloudflare).
+- **L3 (Browserbase Fetch API):** One POST → rendered markdown → vendor-specific markdown parser. ~$0.001/page, ~5 s/page. Covers Sigma-Aldrich (Akamai-gated → Browserbase stealth), Enamine, Cayman, ChemCruz, plus Tocris/Molbase fallback. Browser API + LLM extraction reserved as `NotImplementedError` stubs for future revisions.
+- **Offline-catalog resolvers** (Sub-Plan B): JOIN InChIKey → vendor SKU using PubChem FTP / ZINC tranches / Enamine BB SDFs (zero scraping). Drives the chain.
 
-**Tech Stack:** Python 3.11+, `httpx`, `curl_cffi` (CF bypass), `polars`, `pydantic` v2, `typer` (CLI), `pytest` + `pytest-httpx` (replay tests), `uv` for builds. No web-driver / Browserbase dependency for v1 — Cayman/Enamine pricing is fetched via discovered XHR/JSON endpoints, not headless rendering.
+Every URL/schema fact is anchored to a `CLAIM-XX` verdict in `experiments/chem-pricing-verification/`.
+
+**Tech Stack:** Python 3.11+, `httpx`, `curl_cffi` (Cloudflare bypass), `polars`, `pydantic` v2, `typer` (CLI), `pytest` + `pytest-httpx` (replay tests), `uv` for builds. **Browserbase Fetch API** as L3 — one HTTPS POST per page, no Playwright/CDP. The Browser API + LLM-extraction paths are stubbed (`NotImplementedError` with a clear message) so a future revision can swap them in without re-architecting.
 
 **Verified facts driving this plan:** see `experiments/chem-pricing-verification/VERIFICATION.md` (29/29 claims with verdicts) and per-claim evidence in `experiments/chem-pricing-verification/evidence/CLAIM-*.md`. Verdict tally: 18 VERIFIED, 8 PARTIAL (specifics need correction), 1 FALSIFIED (Apollo — drop entirely), 2 PLAUSIBLE estimates. Apollo Scientific is **omitted** from this plan because its e-commerce surface no longer exists (CLAIM-11). Sigma-Aldrich and TCI are **deferred to a future Tier 4 plan** because they require residential proxies + WAF-aware infrastructure (CLAIM-12, CLAIM-13).
 
@@ -99,24 +106,25 @@ Phase content has been moved to the dedicated sub-plan files (see Sub-plans tabl
 
 | Phase | Sub-plan | Summary |
 |---|---|---|
-| 0 — Package scaffolding | A | Add `pricing` extra + console script; create package skeleton + test harness |
-| 1 — Core types/chain/cache | A | `types.py`, `protocol.py`, `ratelimit.py`, `chain.py`, `http.py`; SQLite-backed quote cache |
-| 2 — Offline catalog resolvers | B | PubChem SDF, Enamine BB SDF, ZINC tranche resolvers (column-agnostic via Revision 5) |
-| 3 — Tier 1 vendors (plain HTTP) | C | Fluorochem (corrected schema), Molbase (corrected URL + CNY), Tocris |
-| 4 — Tier 2 vendors (JS-rendered) | D | Enamine (DevTools discovery on `ebc.enamine.net` per Revision 6), Cayman, ChemCruz |
-| 5 — Tier 3 vendor (Cloudflare-aware) | D | MedChemExpress via curl_cffi (validated fixture capture per Revision 7) |
+| 0 — Package scaffolding | A | Add `pricing` extra + console script; create package skeleton + test harness; extend hatch/mypy/pytest scopes (Revision 24) |
+| 1 — Core types/chain/cache | A | `types.py`, `protocol.py`, `ratelimit.py`, `chain.py` (with R17 try/except guard), `http.py`; SQLite-backed quote cache |
+| 2 — Offline catalog resolvers | B | PubChem SDF (gzip-aware per R22), Enamine BB SDF, ZINC tranche resolvers (column-agnostic per R5) |
+| 3 — Tier 1 L2 vendors (plain HTTP) | C | Fluorochem (Azure-blob JSON), Molbase (CNY support per R3), Tocris (MW-strip per R18) |
+| 4 — Tier 3 L2 vendor (Cloudflare) | D | MedChemExpress only (`curl_cffi`); Enamine/Cayman/ChemCruz moved to Sub-Plan F |
+| 5 — L3 Browserbase Fetch fallback | F | One-POST fetch_markdown client; per-vendor markdown parsers (Sigma, Enamine, Cayman, ChemCruz, Tocris, Molbase); Browser API + LLM as stubs |
 | 6 — CLI | E | `aichemy-price` Typer app with `lookup`, `chain`, `resolve` |
-| 7 — Public API + AIchemy integration | E | `__init__.py` re-exports; `_InchikeyAdapter` (Revision 4); FX-table completeness test (Revision 10) |
-| 8 — End-to-end verification | E | Standalone test suite, AIchemy regression, README |
+| 7 — Public API + AIchemy integration | E | `__init__.py` re-exports; `PricesConfig` schema update (R23); `_InchikeyAdapter` with FX-staleness warning (R28); `make_lookup` branch |
+| 8 — End-to-end verification | E | Standalone test suite, AIchemy regression, README, run on 100K-compound subset |
 
 ## Going-live checklist (deliberately deferred items)
 
 Items intentionally **not** in this plan because they need more infrastructure than the standalone package should depend on:
 
-- **Sigma-Aldrich + TCI Chemicals.** Both behind Akamai (CLAIM-12, CLAIM-13). Plan-level deferral: ship a separate "Tier 4 WAF-aware" plan that adds residential-proxy support (e.g., via Browserbase or Bright Data), with explicit cost gating. Until then `build_default_chain` skips them.
+- **Sigma-Aldrich.** Akamai-gated (CLAIM-13). **Now in scope via Sub-Plan F's L3 path** — Browserbase's stealth + residential IPs handle Akamai for the Fetch API. If Browserbase 403s on Sigma at scale (it sometimes does), fall back to deferring Sigma; L1+L2 still produces partial coverage.
+- **TCI Chemicals.** Akamai-gated (CLAIM-12). Same situation as Sigma — deferred unless Sub-Plan F's L3 path proves reliable for Akamai vendors. Add a `tci.py` markdown parser to `aichemy_pricing.browserbase.parsers/` if it does.
 - **Apollo Scientific.** FALSIFIED (CLAIM-11) — store decommissioned. Permanently excluded.
 - **BLDpharm.** URL pattern in original report is wrong (CLAIM-16); real pattern not yet discovered. Mark TODO; not worth pursuing until a working URL example is sourced.
-- **Browserbase / headless rendering.** Not needed for v1 — Enamine/Cayman/MCE all have JSON XHR endpoints discoverable via DevTools that we hit directly. Revisit only if a vendor flips to a non-deterministic JS-only render.
+- **Browser API + LLM extraction (Sub-Plan F stubs).** Reserved module names that raise `NotImplementedError` in v1. Build only when (a) a vendor needs multi-step browser interaction beyond a single Fetch call, or (b) the per-vendor regex parser cost grows past LLM-call cost (~50+ vendors).
 - **Avanti SAP migration (June 2026).** Per CLAIM-21, MilliporeSigma will change Avanti SKU codes in June 2026. Cache TTL of 30 days mitigates this; full re-resolution recommended after the migration window.
 
 ---

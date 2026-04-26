@@ -239,14 +239,14 @@ __all__ = [
 
 
 _DEFAULT_VENDOR_CLASSES: list[type] = [
-    FluorochemVendor,
-    MolbaseVendor,
-    TocrisVendor,
-    EnamineVendor,
-    CaymanVendor,
-    ChemCruzVendor,
-    MedChemExpressVendor,
+    # L2 — direct HTTPS, free, ~100ms/lookup. Fire first; cheap to try.
+    FluorochemVendor,        # Azure-blob JSON, no auth
+    TocrisVendor,            # SSR HTML, anonymous USD prices
+    MolbaseVendor,           # SSR HTML, mostly Chinese suppliers
+    MedChemExpressVendor,    # curl_cffi for Cloudflare
 ]
+# L3 (Browserbase Fetch API) is appended in build_default_chain so its
+# constructor (which never raises) is independent of the L2 vendor list.
 
 
 def build_default_chain(cache_path: Path | str) -> CachedPriceLookup:
@@ -277,6 +277,11 @@ def build_default_chain(cache_path: Path | str) -> CachedPriceLookup:
                 "build_default_chain: skipping %s — %s",
                 cls.__name__, exc,
             )
+    # L3 — Browserbase Fetch API. Always appended last (cheapest things fire
+    # first); no-ops if BROWSERBASE_API_KEY is unset, so safe to include
+    # unconditionally. See Sub-Plan F for the L3 architecture.
+    from aichemy_pricing.browserbase.fetch_lookup import BrowserbaseFetchLookup
+    members.append(BrowserbaseFetchLookup())
     return CachedPriceLookup(ChainedPriceLookup(members), db_path=cache_path, ttl_days=30)
 ```
 
@@ -1032,9 +1037,10 @@ git commit --allow-empty -m "test(pricing): end-to-end verification — all offl
 | A | 21 | 0 |
 | B | 17 | 1 |
 | C | 15 | 3 |
-| D | 16 | 4 |
+| D | 4 | 1 | (post-F-pivot: only MedChemExpress remains here) |
+| F | 21 | 0 | (Browserbase L3: client + 6 parsers + 2 stubs) |
 | E | 14 | 0 |
-| **Total** | **83** | **8** |
+| **Total** | **92** | **5** |
 
 **All tests:**
 ```bash
