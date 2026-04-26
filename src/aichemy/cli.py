@@ -696,9 +696,7 @@ def patents_classify_llm(
     reactions = read_reactions(interim_path(cfg, "augmented", "reactions_full.parquet"))
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise typer.BadParameter(
-            "ANTHROPIC_API_KEY not set; LLM classification cannot proceed."
-        )
+        raise typer.BadParameter("ANTHROPIC_API_KEY not set; LLM classification cannot proceed.")
 
     client = anthropic.Anthropic()
     out_path = licenses_path(cfg, "llm_classifications.parquet")
