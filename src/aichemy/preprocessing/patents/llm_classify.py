@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -205,7 +205,7 @@ def classify_ambiguous_patents(
             confidence=result.confidence,
             rationale=result.rationale,
             model=model,
-            ts=datetime.now(tz=timezone.utc).isoformat(),
+            ts=datetime.now(tz=UTC).isoformat(),
         )
         append_cache(cache_path, entry)
         rows.append(_to_row(entry, cache_hit=False))
