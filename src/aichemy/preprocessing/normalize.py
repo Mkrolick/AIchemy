@@ -149,25 +149,3 @@ def filter_reactions_by_carbon(
 
     mask = [_passes(row) for row in reactions.iter_rows(named=True)]
     return reactions.filter(pl.Series("_keep", mask, dtype=pl.Boolean))
-
-
-def filter_molecules_by_usage(
-    molecules: pl.DataFrame,
-    reactions: pl.DataFrame,
-) -> pl.DataFrame:
-    """Keep only molecules whose mol_id appears in some reaction's reactants or products."""
-    if reactions.height == 0:
-        return molecules.head(0)
-    referenced = (
-        pl.concat(
-            [
-                reactions.lazy().select(pl.col("reactants").alias("side")),
-                reactions.lazy().select(pl.col("products").alias("side")),
-            ]
-        )
-        .explode("side")
-        .select(pl.col("side").struct.field("mol_id"))
-        .unique()
-        .collect()
-    )
-    return molecules.join(referenced, on="mol_id", how="semi")
