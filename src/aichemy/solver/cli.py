@@ -40,6 +40,21 @@ _BalanceFilterOpt = typer.Option(
         "strict atom-count) or 'balanced' (looser per-source claim)."
     ),
 )
+_RProcessOpt = typer.Option(
+    "0,0.02,0.04,0.06,0.08",
+    "--r-process",
+    help="Comma-separated decimal fractions for the process royalty axis.",
+)
+_RCompOpt = typer.Option(
+    "0,0.02,0.04,0.06,0.08",
+    "--r-comp",
+    help="Comma-separated decimal fractions for the composition royalty axis.",
+)
+_SweepOutOpt = typer.Option(
+    Path("data/processed/sensitivity"),
+    "--out",
+    help="Output directory.",
+)
 
 
 @solver_app.command("run")
@@ -99,9 +114,7 @@ def _run_sweep(
             sol = build_and_solve(reactions, molecules, cfg)
             cell_dir = out_dir / "runs" / f"r_process_{rp:.4f}_r_comp_{rc:.4f}"
             cell_dir.mkdir(parents=True, exist_ok=True)
-            (cell_dir / "solution.json").write_text(
-                json.dumps(sol.to_dict(), indent=2) + "\n"
-            )
+            (cell_dir / "solution.json").write_text(json.dumps(sol.to_dict(), indent=2) + "\n")
             sold_ids = sorted(s["mol_id"] for s in sol.sold_molecules)
             set_hash = hashlib.sha256(",".join(sold_ids).encode()).hexdigest()[:16]
             rows.append(
@@ -126,21 +139,9 @@ def _run_sweep(
 def sweep(
     config: Path = _ConfigOpt,
     override: list[Path] = _OverrideOpt,
-    r_process: str = typer.Option(
-        "0,0.02,0.04,0.06,0.08",
-        "--r-process",
-        help="Comma-separated decimal fractions for the process royalty axis.",
-    ),
-    r_comp: str = typer.Option(
-        "0,0.02,0.04,0.06,0.08",
-        "--r-comp",
-        help="Comma-separated decimal fractions for the composition royalty axis.",
-    ),
-    out: Path = typer.Option(
-        Path("data/processed/sensitivity"),
-        "--out",
-        help="Output directory.",
-    ),
+    r_process: str = _RProcessOpt,
+    r_comp: str = _RCompOpt,
+    out: Path = _SweepOutOpt,
     backend: str = _BackendOpt,
     verbose: bool = _VerboseOpt,
 ) -> None:
@@ -156,9 +157,7 @@ def sweep(
 
     rp_grid = [float(x) for x in r_process.split(",")]
     rc_grid = [float(x) for x in r_comp.split(",")]
-    typer.echo(
-        f"[solve sweep] {len(rp_grid)}×{len(rc_grid)} = {len(rp_grid) * len(rc_grid)} cells"
-    )
+    typer.echo(f"[solve sweep] {len(rp_grid)}x{len(rc_grid)} = {len(rp_grid) * len(rc_grid)} cells")
     summary = _run_sweep(
         reactions,
         molecules,
@@ -168,6 +167,5 @@ def sweep(
         base_config=base_cfg,
     )
     typer.echo(
-        f"[solve sweep] complete; summary → {out / 'summary.parquet'} "
-        f"({summary.height} rows)"
+        f"[solve sweep] complete; summary → {out / 'summary.parquet'} ({summary.height} rows)"
     )

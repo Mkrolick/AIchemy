@@ -33,23 +33,15 @@ def _two_reaction_fixture(*, process_covered: bool, composition_covered: bool):
 
 
 def test_zero_royalty_matches_baseline_objective():
-    reactions, molecules = _two_reaction_fixture(
-        process_covered=True, composition_covered=True
-    )
-    sol_zero = build_and_solve(
-        reactions, molecules, SolverConfig(r_process=0.0, r_comp=0.0)
-    )
-    reactions_legacy = reactions.drop(
-        ["patent_active", "process_covered", "composition_covered"]
-    )
+    reactions, molecules = _two_reaction_fixture(process_covered=True, composition_covered=True)
+    sol_zero = build_and_solve(reactions, molecules, SolverConfig(r_process=0.0, r_comp=0.0))
+    reactions_legacy = reactions.drop(["patent_active", "process_covered", "composition_covered"])
     sol_legacy = build_and_solve(reactions_legacy, molecules, SolverConfig())
     assert abs(sol_zero.objective_value - sol_legacy.objective_value) < 1e-3
 
 
 def test_process_royalty_reduces_objective_by_expected_amount():
-    reactions, molecules = _two_reaction_fixture(
-        process_covered=True, composition_covered=False
-    )
+    reactions, molecules = _two_reaction_fixture(process_covered=True, composition_covered=False)
     cfg_no = SolverConfig(r_process=0.0, r_comp=0.0)
     cfg_p = SolverConfig(r_process=0.5, r_comp=0.0)
     sol_no = build_and_solve(reactions, molecules, cfg_no)
@@ -59,15 +51,9 @@ def test_process_royalty_reduces_objective_by_expected_amount():
 
 
 def test_composition_royalty_reduces_objective_by_expected_amount():
-    reactions, molecules = _two_reaction_fixture(
-        process_covered=False, composition_covered=True
-    )
-    sol_no = build_and_solve(
-        reactions, molecules, SolverConfig(r_process=0.0, r_comp=0.0)
-    )
-    sol_c = build_and_solve(
-        reactions, molecules, SolverConfig(r_process=0.0, r_comp=0.5)
-    )
+    reactions, molecules = _two_reaction_fixture(process_covered=False, composition_covered=True)
+    sol_no = build_and_solve(reactions, molecules, SolverConfig(r_process=0.0, r_comp=0.0))
+    sol_c = build_and_solve(reactions, molecules, SolverConfig(r_process=0.0, r_comp=0.5))
     # Royalty paid = r_comp · price · qty_sold(C) where qty_sold is the
     # productive (post-royalty) quantity. The zero-royalty case tolerates
     # zero-margin buy/resell arbitrage on C (buy_price == sell_price), so
