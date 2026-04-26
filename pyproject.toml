@@ -32,6 +32,7 @@ pricing = [
   "pydantic>=2.6",
   "typer>=0.12",
   "rdkit>=2024.3",
+  "html2text>=2024.2",  # Browserbase Fetch returns HTML; we convert to markdown
 ]
 
 [project.scripts]
