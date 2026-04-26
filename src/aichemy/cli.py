@@ -7,6 +7,7 @@ import typer
 
 from aichemy.config import PreprocessingConfig, load_config
 from aichemy.preprocessing import export as export_module
+from aichemy.preprocessing import select as select_module
 from aichemy.preprocessing.augment import directionality as directionality_module
 from aichemy.preprocessing.augment import licenses as licenses_module
 from aichemy.preprocessing.augment import prices as prices_module
@@ -38,11 +39,13 @@ dedup_app = typer.Typer(help="Deduplicate molecules or reactions.")
 balance_app = typer.Typer(help="Balance and validate reaction atom counts.")
 augment_app = typer.Typer(help="Enrich the merged table with yields, prices, directionality.")
 patents_app = typer.Typer(help="Patent metadata fetching and license classification.")
+select_app = typer.Typer(help="Curate the post-augmentation reaction set.")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(dedup_app, name="dedup")
 app.add_typer(balance_app, name="balance")
 app.add_typer(augment_app, name="augment")
 app.add_typer(patents_app, name="patents")
+app.add_typer(select_app, name="select")
 app.add_typer(solver_app, name="solve")
 
 
@@ -780,6 +783,43 @@ def patents_classify_llm(
     typer.echo(
         f"[patents classify-llm] {out.height} patents classified "
         f"({n_hit} cache hits, {out.height - n_hit} fresh) → {out_path}"
+    )
+
+
+@select_app.command("reactions")
+def select_reactions_cmd(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Select a curated subset of reactions (TF-IDF mol-overlap; pins rdkit_balanced)."""
+    cfg = _load(config, override)
+    input_path = interim_path(cfg, "augmented", "reactions_full.parquet")
+    output_path = interim_path(cfg, "selected", "reactions.parquet")
+
+    if not input_path.exists():
+        write_empty_reactions(output_path)
+        typer.echo(f"[select reactions] upstream {input_path} missing; wrote empty parquet.")
+        return
+
+    df = read_reactions(input_path)
+    out = select_module.select_reactions(
+        df,
+        target_total=cfg.selection.target_total,
+        seed=cfg.selection.seed,
+        mandatory_column=cfg.selection.mandatory_column,
+    )
+    write_reactions(out, output_path)
+
+    if out.height == 0:
+        typer.echo(f"[select reactions] input empty; wrote {output_path}.")
+        return
+
+    mandatory_kept = int(out.filter(pl.col(cfg.selection.mandatory_column)).height)
+    fill = out.height - mandatory_kept
+    typer.echo(
+        f"[select reactions] selected {out.height:,} of {df.height:,} "
+        f"({mandatory_kept:,} mandatory {cfg.selection.mandatory_column} + "
+        f"{fill:,} by TF-IDF mol overlap)."
     )
 
 

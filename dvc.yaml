@@ -156,6 +156,14 @@ stages:
       - data/interim/licenses/llm_classifications.parquet
     outs:
       - data/interim/augmented/reactions_licensed.parquet
+  select_reactions:
+    cmd: uv run aichemy select reactions --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/select.py
+      - data/interim/augmented/reactions_full.parquet
+    outs:
+      - data/interim/selected/reactions.parquet
 
   augment_prices:
     cmd: uv run aichemy augment prices --config configs/default.yaml
