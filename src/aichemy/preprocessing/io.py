@@ -58,6 +58,14 @@ def processed_path(config: PreprocessingConfig, *parts: str) -> Path:
     return resolve_data_dir(config).joinpath("processed", *parts)
 
 
+def patents_path(config: PreprocessingConfig, *parts: str) -> Path:
+    return resolve_data_dir(config).joinpath("interim", "patents", *parts)
+
+
+def licenses_path(config: PreprocessingConfig, *parts: str) -> Path:
+    return resolve_data_dir(config).joinpath("interim", "licenses", *parts)
+
+
 MOLECULE_SCHEMA = {
     "mol_id": pl.Utf8,
     "canonical_smiles": pl.Utf8,
