@@ -34,6 +34,18 @@ prices:
   aichemy_pricing:
     catalog_dir: data/raw/pubchem_substance
     cache_path: data/interim/aichemy_pricing_cache.sqlite
+    # Vendor allowlist for the PubChem SDF resolver. PubChem Substance has 914
+    # source tags; loading them all OOMs at full-corpus scale (491M SIDs). This
+    # restricts the in-memory InChIKey index to vendors we actually price via
+    # the L2/L3 chain. Names match `PUBCHEM_EXT_DATASOURCE_NAME` exactly.
+    allowed_sources:
+      - Fluorochem
+      - MedChemExpress
+      - Tocris Bioscience
+      - Molbase
+      - Enamine
+      - Santa Cruz Biotechnology, Inc.
+    max_workers: 100
 
 paths:
   data_dir: data
