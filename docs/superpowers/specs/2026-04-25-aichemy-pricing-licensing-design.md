@@ -254,6 +254,7 @@ Full `dvc repro` on the existing tiny fixture (`tests/fixtures/`), with PatentsV
 3. **The patent associated with a reaction is the patent it was *extracted from*** (Lowe dataset provenance), not necessarily the patent that *legally protects* the route. A reaction might be prior art the patent merely cites. The LLM classifier mitigates this when the patent's claims clearly cover something else, but doesn't eliminate the issue.
 4. **Process royalty on intermediate-only reactions** uses implied market-price revenue rather than a per-unit-of-chemistry fee — a modeling choice rather than a fact about how license deals work.
 5. **Royalty rate range \[0%, 8%\] is industry-typical for fine/specialty chemistry** but actual deals vary widely. The sweep is intended to demonstrate decision robustness within this range, not predict the rate of any specific deal.
+6. **PatentsView v1 endpoint deprecated.** As of 2026-04, the entire `patentsview.org` host (root, `search.*`, `api.*`) returns 301-redirect to the USPTO ODP transition guide; PatentsView is retired. The fetch client now targets the USPTO Open Data Portal (`api.uspto.gov`), which requires a free API key in `USPTO_ODP_API_KEY`. ODP splits metadata and full text across two endpoints — abstract/claims are fetched per-patent from the grant XML (~2× the request count vs PatentsView v1). The captured ODP contract is documented inline on `_parse_response` in `src/aichemy/preprocessing/patents/fetch.py`.
 
 ## Out of scope
 
