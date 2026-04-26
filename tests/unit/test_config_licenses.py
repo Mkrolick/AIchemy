@@ -7,7 +7,7 @@ from aichemy.config import LicensesConfig, load_config
 
 def test_licenses_config_defaults():
     cfg = LicensesConfig()
-    assert cfg.patentsview_endpoint == "https://search.patentsview.org/api/v1/patent"
+    assert cfg.patentsview_endpoint == "https://api.uspto.gov/api/v1/patent/applications/search"
     assert cfg.llm_model == "claude-haiku-4-5"
     assert cfg.cpc_rules_path == Path("configs/cpc_rules.yaml")
     assert cfg.cache_path == Path("data/interim/licenses/llm_cache.jsonl")

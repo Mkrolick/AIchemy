@@ -57,5 +57,13 @@ class SolverConfig(BaseModel):
     # Verbosity
     verbose: bool = False
 
+    # Royalty rate on process-covered reaction revenue (decimal fraction, [0, 1]).
+    # Default 0.0 preserves legacy behavior when license data is absent or
+    # the sweep CLI hasn't been invoked.
+    r_process: float = 0.0
+
+    # Royalty rate on composition-covered product revenue (decimal fraction, [0, 1]).
+    r_comp: float = 0.0
+
     # Where to write the JSON summary of the solved problem.
     output_path: Path = Field(default_factory=lambda: Path("data/processed/solution.json"))
