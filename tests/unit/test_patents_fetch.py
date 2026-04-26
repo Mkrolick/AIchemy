@@ -24,8 +24,12 @@ SAMPLE_GRANT_XML = """<?xml version="1.0"?>
     <p>A method for the synthesis of substituted heterocyclic compounds.</p>
   </abstract>
   <claims>
-    <claim id="CLM-00001"><claim-text>1. A process for preparing a compound of formula I.</claim-text></claim>
-    <claim id="CLM-00002"><claim-text>2. The process of claim 1.</claim-text></claim>
+    <claim id="CLM-00001">
+      <claim-text>1. A process for preparing a compound of formula I.</claim-text>
+    </claim>
+    <claim id="CLM-00002">
+      <claim-text>2. The process of claim 1.</claim-text>
+    </claim>
   </claims>
 </us-patent-grant>
 """
