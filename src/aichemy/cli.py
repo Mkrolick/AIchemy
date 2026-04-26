@@ -779,7 +779,7 @@ def export(
 ) -> None:
     """Write final unified hypergraph parquets + manifest.json to data/processed/."""
     cfg = _load(config, override)
-    reactions_in = interim_path(cfg, "augmented", "reactions_full.parquet")
+    reactions_in = interim_path(cfg, "augmented", "reactions_licensed.parquet")
     molecules_in = interim_path(cfg, "augmented", "molecules_priced.parquet")
     reactions_out = processed_path(cfg, "reactions.parquet")
     molecules_out = processed_path(cfg, "molecules.parquet")
