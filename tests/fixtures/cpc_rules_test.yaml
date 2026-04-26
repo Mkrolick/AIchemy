@@ -1,0 +1,8 @@
+process_codes:
+  - "C07B"
+  - "C07C"
+composition_codes:
+  - "C07D"
+  - "C07K"
+ambiguous_codes:
+  - "A61K"
