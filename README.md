@@ -102,3 +102,64 @@ Override semantics: dict-valued keys deep-merge; scalars and lists are **replace
 - `research_reports/` — literature review (SPARROW, ASKCOS, minChemBio, etc.)
 - `docs/superpowers/specs/2026-04-19-repo-layout-design.md` — this repo's design spec
 - `docs/superpowers/plans/2026-04-19-preprocessing-foundation.md` — implementation plan (this scaffolding)
+
+## Vendor pricing
+
+`aichemy-pricing` is a standalone package (sibling to `aichemy`) that resolves
+chemical identifiers to per-gram prices via a tiered chain of verified vendor
+sources, then converts to USD via a static FX table.
+
+**Install + verify:**
+```bash
+uv sync --extra pricing
+uv run aichemy-price --version
+```
+
+**Single-SKU debugging (direct-HTTP vendors only):**
+```bash
+uv run aichemy-price lookup fluorochem F765353-1G
+uv run aichemy-price lookup molbase 50-78-2 --json
+```
+
+`lookup` supports the four direct-HTTP vendor classes: `fluorochem`, `molbase`,
+`tocris`, `medchemexpress`.
+
+**Try every vendor through the full default chain:**
+```bash
+uv run aichemy-price chain F765353-1G
+```
+
+`chain` walks direct-HTTP vendors plus the L3 Browserbase Fetch and Browser API
+parser registries, so it also exercises ChemCruz (via Fetch) and Enamine (via
+Browser API). `BROWSERBASE_API_KEY` must be set for the L3 paths to do
+anything; otherwise they no-op.
+
+**InChIKey -> price (offline JOIN + scrape):**
+```bash
+uv run aichemy-price resolve BSYNRYMUTXBXSQ-UHFFFAOYSA-N \
+    --catalog-dir data/raw/pubchem_substance/
+```
+
+**Use as an AIchemy backend:**
+```yaml
+# configs/default.yaml
+prices:
+  backend: aichemy_pricing
+  aichemy_pricing:
+    catalog_dir: data/raw/pubchem_substance
+    cache_path: data/interim/aichemy_pricing_cache.sqlite
+```
+
+The implementation plan and verification trail live at:
+- `docs/superpowers/plans/2026-04-25-aichemy-pricing-package.md` (master)
+- `docs/superpowers/plans/2026-04-25-aichemy-pricing-{A,B,C,D,E,F}-*.md` (sub-plans)
+- `experiments/chem-pricing-verification/VERIFICATION.md` (claim verdicts)
+
+Vendors covered: Fluorochem, Molbase, Tocris, MedChemExpress (direct HTTP);
+ChemCruz (via Browserbase Fetch); Enamine (via Browserbase Browser API).
+Cayman / Sigma / Tocris-via-browser parsers exist on disk but are not yet
+registered — see `browserbase/parsers/__init__.py` and
+`browser_parsers/__init__.py` to enable.
+
+Excluded: Apollo Scientific (CLAIM-11 FALSIFIED), Sigma-Aldrich + TCI (Akamai
+proxy requirement, deferred), BLDpharm (CLAIM-16 — URL TBD).

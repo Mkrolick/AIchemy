@@ -107,15 +107,31 @@ class ScraperConfig(BaseModel):
     backoff_base_seconds: float = 2.0
 
 
+class AichemyPricingConfig(BaseModel):
+    """Backend-specific config for the standalone `aichemy_pricing` package.
+
+    Path fields point at the offline catalog (PubChem SDF dir + a SQLite cache
+    location). Free-form sub-keys are forbidden so typos surface at load time.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    catalog_dir: Path = Field(default_factory=lambda: Path("data/raw/pubchem_substance"))
+    cache_path: Path = Field(
+        default_factory=lambda: Path("data/interim/aichemy_pricing_cache.sqlite")
+    )
+
+
 class PricesConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
-    backend: Literal["stub", "chained"] = "chained"
+    backend: Literal["stub", "chained", "aichemy_pricing"] = "chained"
     chain: list[str] = Field(default_factory=lambda: ["curated", "pubchem"])
     cache_path: Path = Field(default_factory=lambda: Path("data/interim/prices_cache.sqlite"))
     cache_ttl_days: int = 30
     pubchem: PubChemConfig = Field(default_factory=PubChemConfig)
     scraper: ScraperConfig = Field(default_factory=ScraperConfig)
+    aichemy_pricing: AichemyPricingConfig = Field(default_factory=AichemyPricingConfig)
 
 
 class PathsConfig(BaseModel):
