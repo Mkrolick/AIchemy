@@ -45,12 +45,12 @@ def compute_idf(doc_freq: dict[str, int], n_docs: int) -> dict[str, float]:
     }
 
 
-def _row_mol_ids(row: dict) -> set[str]:
+def _row_mol_ids(row: dict[str, list[dict[str, str | float]]]) -> set[str]:
     out: set[str] = set()
     for stoich in row["reactants"]:
-        out.add(stoich["mol_id"])
+        out.add(str(stoich["mol_id"]))
     for stoich in row["products"]:
-        out.add(stoich["mol_id"])
+        out.add(str(stoich["mol_id"]))
     return out
 
 
