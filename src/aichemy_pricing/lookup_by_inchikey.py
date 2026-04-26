@@ -7,6 +7,7 @@ Internals:
      and call chain.lookup(ref) -> PriceQuote | None
   3. return first non-None quote, or None if every hit misses.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,9 +23,7 @@ class LookupByInchikey:
 
     def lookup(self, inchikey: str) -> PriceQuote | None:
         for hit in self.resolver.resolve(inchikey):
-            ref = VendorRef(
-                vendor=hit.vendor, sku=hit.sku, canonical_url=hit.canonical_url
-            )
+            ref = VendorRef(vendor=hit.vendor, sku=hit.sku, canonical_url=hit.canonical_url)
             quote = self.chain.lookup(ref)
             if quote is not None:
                 return quote

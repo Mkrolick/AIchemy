@@ -26,6 +26,7 @@ Enamine, Cayman Chemical, Santa Cruz / ChemCruz, and Sigma are reachable
 via the Browserbase L3 layer (Fetch for SSR, Browser API for SPAs); they
 are not standalone vendor classes.
 """
+
 from __future__ import annotations
 
 import logging
@@ -51,40 +52,40 @@ from aichemy_pricing.vendors.molbase import MolbaseVendor
 from aichemy_pricing.vendors.tocris import TocrisVendor
 
 __all__ = [
-    "__version__",
-    "Currency",
-    "PriceQuote",
-    "VendorRef",
-    "ResolverHit",
-    "PriceLookup",
-    "VendorResolver",
-    "ChainedPriceLookup",
-    "CachedPriceLookup",
-    "TokenBucket",
-    "make_plain_client",
-    "make_cf_client",
-    "PubChemSdfResolver",
-    "EnamineSdfResolver",
-    "ZincTrancheResolver",
-    "FluorochemVendor",
-    "MolbaseVendor",
-    "TocrisVendor",
-    "MedChemExpressVendor",
-    "BrowserbaseFetchLookup",
-    "BrowserbaseBrowserLookup",
-    "LookupByInchikey",
-    "build_default_chain",
     "_DEFAULT_VENDOR_CLASSES",  # mutable for tests; underscore = unstable
+    "BrowserbaseBrowserLookup",
+    "BrowserbaseFetchLookup",
+    "CachedPriceLookup",
+    "ChainedPriceLookup",
+    "Currency",
+    "EnamineSdfResolver",
+    "FluorochemVendor",
+    "LookupByInchikey",
+    "MedChemExpressVendor",
+    "MolbaseVendor",
+    "PriceLookup",
+    "PriceQuote",
+    "PubChemSdfResolver",
+    "ResolverHit",
+    "TocrisVendor",
+    "TokenBucket",
+    "VendorRef",
+    "VendorResolver",
+    "ZincTrancheResolver",
+    "__version__",
+    "build_default_chain",
+    "make_cf_client",
+    "make_plain_client",
 ]
 
 
 # Direct-HTTP vendor classes only. Enamine/Cayman/ChemCruz/Sigma reach the
 # chain through the L3 Browserbase layers appended below.
 _DEFAULT_VENDOR_CLASSES: list[type] = [
-    FluorochemVendor,        # L1 — Azure-blob JSON, no auth
-    TocrisVendor,            # L1 — SSR HTML, anonymous USD prices
-    MolbaseVendor,           # L1 — SSR HTML, mostly Chinese suppliers
-    MedChemExpressVendor,    # L2 — curl_cffi for Cloudflare
+    FluorochemVendor,  # L1 — Azure-blob JSON, no auth
+    TocrisVendor,  # L1 — SSR HTML, anonymous USD prices
+    MolbaseVendor,  # L1 — SSR HTML, mostly Chinese suppliers
+    MedChemExpressVendor,  # L2 — curl_cffi for Cloudflare
 ]
 
 
@@ -110,13 +111,9 @@ def build_default_chain(cache_path: Path | str) -> CachedPriceLookup:
         try:
             members.append(cls())
         except NotImplementedError as exc:
-            log.warning(
-                "build_default_chain: skipping %s — %s", cls.__name__, exc
-            )
+            log.warning("build_default_chain: skipping %s — %s", cls.__name__, exc)
     # L3a — Browserbase Fetch (SSR HTML; chemcruz parser registered today).
     members.append(BrowserbaseFetchLookup())
     # L3b — Browserbase Browser API (JS-rendered SPAs; enamine registered today).
     members.append(BrowserbaseBrowserLookup())
-    return CachedPriceLookup(
-        ChainedPriceLookup(members), db_path=cache_path, ttl_days=30
-    )
+    return CachedPriceLookup(ChainedPriceLookup(members), db_path=cache_path, ttl_days=30)

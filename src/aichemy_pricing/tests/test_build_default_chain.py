@@ -1,4 +1,5 @@
 """Unit tests for build_default_chain."""
+
 from __future__ import annotations
 
 import logging
@@ -20,6 +21,7 @@ def test_build_default_chain_omits_excluded_vendors_and_includes_required(
     tmp_path,
 ) -> None:
     chain = build_default_chain(cache_path=tmp_path / "c.sqlite")
+    assert isinstance(chain.inner, ChainedPriceLookup)
     vendor_names = {m.name for m in chain.inner.members}
     excluded = {"apollo", "sigma", "sigma-aldrich", "tci", "bld", "bldpharm"}
     assert vendor_names.isdisjoint(excluded)
@@ -52,12 +54,9 @@ def test_build_default_chain_skips_placeholder_vendors_gracefully(
         def __init__(self) -> None:
             raise NotImplementedError("simulated discovery placeholder")
 
-    monkeypatch.setattr(
-        pkg, "_DEFAULT_VENDOR_CLASSES", [_Boom, *pkg._DEFAULT_VENDOR_CLASSES]
-    )
+    monkeypatch.setattr(pkg, "_DEFAULT_VENDOR_CLASSES", [_Boom, *pkg._DEFAULT_VENDOR_CLASSES])
     with caplog.at_level(logging.WARNING):
         chain = build_default_chain(cache_path=tmp_path / "c.sqlite")
+    assert isinstance(chain.inner, ChainedPriceLookup)
     assert "boom" not in {m.name for m in chain.inner.members}
-    assert any(
-        "simulated discovery placeholder" in r.message for r in caplog.records
-    )
+    assert any("simulated discovery placeholder" in r.message for r in caplog.records)
