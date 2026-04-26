@@ -15,6 +15,7 @@ classes (fluorochem, molbase, tocris, medchemexpress). For Enamine /
 Cayman / ChemCruz / Sigma, use `chain` or `resolve` — those vendors are
 reached via the L3 Browserbase layers (Fetch for SSR, Browser API for SPAs).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -38,6 +39,16 @@ from aichemy_pricing.browserbase.parsers import REGISTRY as _FETCH_REGISTRY
 from aichemy_pricing.lookup_by_inchikey import LookupByInchikey
 
 app = typer.Typer(help="aichemy-pricing CLI")
+
+# Module-level Option singletons — keeps typer.Option calls out of function
+# defaults (B008) without sacrificing the descriptive help text.
+_CHAIN_CACHE_OPT = typer.Option(
+    Path(".aichemy_pricing_cache_chain.sqlite"),
+    "--cache",
+    help="SQLite cache path (re-used across invocations to save calls)",
+)
+_CATALOG_DIR_OPT = typer.Option(..., "--catalog-dir", help="Directory with PubChem SDFs")
+_RESOLVE_CACHE_OPT = typer.Option(Path(".aichemy_pricing_cache.sqlite"), "--cache")
 
 # Map vendor short-name -> direct-HTTP vendor class. Mutable for tests via
 # monkeypatch. Enamine / Cayman / ChemCruz / Sigma are *not* here — they
@@ -73,10 +84,7 @@ def main(
 def lookup(
     vendor: str = typer.Argument(
         ...,
-        help=(
-            "Vendor short-name; one of: fluorochem, molbase, tocris, "
-            "medchemexpress"
-        ),
+        help=("Vendor short-name; one of: fluorochem, molbase, tocris, medchemexpress"),
     ),
     sku: str = typer.Argument(..., help="Vendor SKU"),
     as_json: bool = typer.Option(False, "--json", help="Emit JSON"),
@@ -94,9 +102,7 @@ def lookup(
         # Discovery placeholder unfilled (Revision 27 — symmetric with the
         # chain factory's placeholder skip). Surface a clean exit rather
         # than a bare Python traceback.
-        typer.echo(
-            f"{vendor}: discovery placeholder unfilled — {exc}", err=True
-        )
+        typer.echo(f"{vendor}: discovery placeholder unfilled — {exc}", err=True)
         raise typer.Exit(2) from exc
     quote = v.lookup(VendorRef(vendor=vendor, sku=sku))
     if quote is None:
@@ -113,11 +119,7 @@ def chain(
     sku: str = typer.Argument(
         ..., help="SKU to try across every known vendor in the default chain"
     ),
-    cache_path: Path = typer.Option(
-        Path(".aichemy_pricing_cache_chain.sqlite"),
-        "--cache",
-        help="SQLite cache path (re-used across invocations to save calls)",
-    ),
+    cache_path: Path = _CHAIN_CACHE_OPT,
 ) -> None:
     """Try every known vendor name on a SKU through the full default chain.
 
@@ -130,9 +132,7 @@ def chain(
     """
     pipeline = build_default_chain(cache_path=cache_path)
     candidates = (
-        list(_VENDORS.keys())
-        + list(_FETCH_REGISTRY.keys())
-        + list(_BROWSER_REGISTRY.keys())
+        list(_VENDORS.keys()) + list(_FETCH_REGISTRY.keys()) + list(_BROWSER_REGISTRY.keys())
     )
     seen: set[str] = set()
     for name in candidates:
@@ -142,7 +142,7 @@ def chain(
         ref = VendorRef(vendor=name, sku=sku)
         try:
             q = pipeline.lookup(ref)
-        except Exception as exc:  # noqa: BLE001 — debug walk, surface and continue
+        except Exception as exc:  # debug walk; one parser bug shouldn't abort the rest
             typer.echo(f"{name}: error — {exc}", err=True)
             continue
         if q is not None:
@@ -155,17 +155,11 @@ def chain(
 @app.command()
 def resolve(
     inchikey: str = typer.Argument(..., help="Standard InChIKey (27 chars)"),
-    catalog_dir: Path = typer.Option(
-        ..., "--catalog-dir", help="Directory with PubChem SDFs"
-    ),
-    cache_path: Path = typer.Option(
-        Path(".aichemy_pricing_cache.sqlite"), "--cache"
-    ),
+    catalog_dir: Path = _CATALOG_DIR_OPT,
+    cache_path: Path = _RESOLVE_CACHE_OPT,
 ) -> None:
     """Walk a PubChem SDF catalog -> default chain to price an InChIKey."""
-    sdf_files = sorted(
-        list(catalog_dir.glob("*.sdf")) + list(catalog_dir.glob("*.sdf.gz"))
-    )
+    sdf_files = sorted(list(catalog_dir.glob("*.sdf")) + list(catalog_dir.glob("*.sdf.gz")))
     if not sdf_files:
         typer.echo(f"no .sdf or .sdf.gz files in {catalog_dir}", err=True)
         raise typer.Exit(2)

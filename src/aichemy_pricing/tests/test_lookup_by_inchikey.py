@@ -1,4 +1,5 @@
 """Unit tests for LookupByInchikey adapter."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -57,17 +58,13 @@ def test_lookup_returns_none_when_no_resolver_hits() -> None:
     resolver = _StaticResolver([])
     chain = _ConditionalChain({"enamine"})
     assert (
-        LookupByInchikey(resolver=resolver, chain=chain).lookup(
-            "BSYNRYMUTXBXSQ-UHFFFAOYSA-N"
-        )
+        LookupByInchikey(resolver=resolver, chain=chain).lookup("BSYNRYMUTXBXSQ-UHFFFAOYSA-N")
         is None
     )
 
 
 def test_lookup_returns_none_when_no_chain_member_prices_any_resolver_hit() -> None:
     ik = "BSYNRYMUTXBXSQ-UHFFFAOYSA-N"
-    resolver = _StaticResolver(
-        [ResolverHit(inchikey=ik, vendor="apollo", sku="X")]
-    )
+    resolver = _StaticResolver([ResolverHit(inchikey=ik, vendor="apollo", sku="X")])
     chain = _ConditionalChain({"enamine"})  # apollo not in chain
     assert LookupByInchikey(resolver=resolver, chain=chain).lookup(ik) is None

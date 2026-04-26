@@ -1,4 +1,5 @@
 """Unit tests for `aichemy-price` CLI."""
+
 from __future__ import annotations
 
 import json
@@ -56,9 +57,7 @@ def test_cli_lookup_calls_vendor(runner: CliRunner, monkeypatch) -> None:
     assert isinstance(captured["ref"], VendorRef)
 
 
-def test_cli_lookup_json_flag_dumps_pricequote(
-    runner: CliRunner, monkeypatch
-) -> None:
+def test_cli_lookup_json_flag_dumps_pricequote(runner: CliRunner, monkeypatch) -> None:
     quote = PriceQuote(
         vendor="fluorochem",
         sku="F1-1G",
@@ -82,9 +81,7 @@ def test_cli_lookup_json_flag_dumps_pricequote(
     assert parsed["currency"] == "USD"
 
 
-def test_cli_lookup_returns_1_when_no_quote(
-    runner: CliRunner, monkeypatch
-) -> None:
+def test_cli_lookup_returns_1_when_no_quote(runner: CliRunner, monkeypatch) -> None:
     class MissVendor:
         name = "fluorochem"
 
@@ -96,9 +93,7 @@ def test_cli_lookup_returns_1_when_no_quote(
     assert res.exit_code == 1
 
 
-def test_cli_lookup_placeholder_vendor_returns_2(
-    runner: CliRunner, monkeypatch
-) -> None:
+def test_cli_lookup_placeholder_vendor_returns_2(runner: CliRunner, monkeypatch) -> None:
     """Vendors with unfilled discovery placeholders raise NotImplementedError
     from __init__ (fail-loud guard). The CLI must surface a clean
     typer.Exit(2), not a bare Python traceback."""
