@@ -81,14 +81,17 @@ def build_and_solve(
 ) -> Solution:
     """Build the MILP, solve it, return the Solution.
 
-    Only considers ``balanced=True`` reactions. Uses ``price_per_gram`` from
-    molecules; falls back to ``config.default_{buy,sell}_price`` for
-    unpriced molecules.
+    Filters reactions to those with ``config.balance_filter == True`` (default
+    ``rdkit_balanced``; ``balanced`` for the looser per-source claim). Uses
+    ``price_per_gram`` from molecules; falls back to
+    ``config.default_{buy,sell}_price`` for unpriced molecules.
     """
     # Filter to balanced reactions only — unbalanced rows would violate mass
-    # conservation in the MILP.
-    if "balanced" in reactions.columns:
-        reactions = reactions.filter(pl.col("balanced"))
+    # conservation in the MILP. Column choice (strict rdkit_balanced vs looser
+    # balanced) is selectable via SolverConfig.balance_filter.
+    col = config.balance_filter
+    if col in reactions.columns:
+        reactions = reactions.filter(pl.col(col))
     if reactions.height == 0:
         return Solution("No reactions after filtering", 0.0, [], [], [])
 

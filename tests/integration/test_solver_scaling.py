@@ -44,7 +44,9 @@ def test_solver_handles_1000_reactions() -> None:
     """1k-reaction subset should solve in well under a minute."""
     _skip_if_no_real_data()
 
-    reactions = pl.read_parquet(PROCESSED_DIR / "reactions.parquet").filter(pl.col("balanced"))
+    reactions = pl.read_parquet(PROCESSED_DIR / "reactions.parquet").filter(
+        pl.col("rdkit_balanced")
+    )
     all_molecules = pl.read_parquet(PROCESSED_DIR / "molecules.parquet")
 
     sample = reactions.sample(n=min(1000, reactions.height), seed=42)
@@ -74,7 +76,9 @@ def test_solver_handles_full_balanced_network() -> None:
     """
     _skip_if_no_real_data()
 
-    reactions = pl.read_parquet(PROCESSED_DIR / "reactions.parquet").filter(pl.col("balanced"))
+    reactions = pl.read_parquet(PROCESSED_DIR / "reactions.parquet").filter(
+        pl.col("rdkit_balanced")
+    )
     all_molecules = pl.read_parquet(PROCESSED_DIR / "molecules.parquet")
 
     referenced: set[str] = set()

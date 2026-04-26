@@ -31,6 +31,15 @@ class SolverConfig(BaseModel):
     # Typically ≤ buy price to prevent arbitrage from gaps.
     default_sell_price: float = 0.0
 
+    # Which boolean column gates which reactions enter the MILP.
+    # "rdkit_balanced" (default, strict): per-element atom-count equality
+    #   verified by RDKit in the balance_validate stage.
+    # "balanced" (looser): per-source claim — SYN-RBL conf > 0.8 for USPTO,
+    #   curator's is_balanced=='B' for MetaNetX. After the drop_unbalanced
+    #   stage every surviving row has balanced=True, so this is effectively
+    #   "no atom-count filter".
+    balance_filter: Literal["balanced", "rdkit_balanced"] = "rdkit_balanced"
+
     # Minimum non-zero flow when a reaction is activated (prevents
     # "epsilon-activations" that win the objective by cents).
     min_flow: float = 1e-3
