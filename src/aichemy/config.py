@@ -50,6 +50,23 @@ class LicensesConfig(BaseModel):
     llm_max_retries: int = 3
 
 
+class SelectionConfig(BaseModel):
+    """Curated-subset selection (Stage 14: select_reactions)."""
+
+    model_config = {"extra": "forbid"}
+
+    # Target total number of reactions in the final selected set.
+    target_total: int = 100_000
+
+    # Seed for reproducible random tiebreaks and score=0 fill order.
+    seed: int = 42
+
+    # The boolean column whose True rows are pinned in the output regardless
+    # of overlap score. "rdkit_balanced" trusts the strict atom-count math;
+    # "balanced" pins the looser SYN-RBL/curator claim.
+    mandatory_column: Literal["rdkit_balanced", "balanced"] = "rdkit_balanced"
+
+
 class MetaNetXURLsConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
@@ -134,6 +151,7 @@ class PreprocessingConfig(BaseModel):
     prices: PricesConfig = Field(default_factory=PricesConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
     licenses: LicensesConfig = Field(default_factory=LicensesConfig)
+    selection: SelectionConfig = Field(default_factory=SelectionConfig)
 
 
 def _deep_merge(base: dict[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:
