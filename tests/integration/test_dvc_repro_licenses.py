@@ -81,9 +81,7 @@ def test_full_license_flow_with_stubbed_apis(
                         "inventionTitle": "MEDICINAL PREPARATION",
                         "cpcClassificationBag": ["A61K 31/505"],
                     },
-                    "assignmentBag": [
-                        {"assigneeBag": [{"assigneeNameText": "Acme"}]}
-                    ],
+                    "assignmentBag": [{"assigneeBag": [{"assigneeNameText": "Acme"}]}],
                     "grantDocumentMetaData": {"fileLocationURI": ODP_FILE_URI},
                 }
             ],

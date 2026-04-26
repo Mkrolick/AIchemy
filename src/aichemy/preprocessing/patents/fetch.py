@@ -125,9 +125,7 @@ def _fetch_batch(
                 for rec, raw in pairs:
                     if rec.fetch_status != "ok":
                         continue
-                    file_uri = (raw.get("grantDocumentMetaData") or {}).get(
-                        "fileLocationURI"
-                    )
+                    file_uri = (raw.get("grantDocumentMetaData") or {}).get("fileLocationURI")
                     if not file_uri:
                         continue
                     try:
@@ -274,9 +272,7 @@ def _fetch_grant_xml(file_uri: str, api_key: str) -> str | None:
             allow_redirects=False,
         )
         if r.status_code in _GRANT_AUTH_ERROR_STATUSES:
-            raise GrantFetchError(
-                f"file-location lookup returned HTTP {r.status_code}"
-            )
+            raise GrantFetchError(f"file-location lookup returned HTTP {r.status_code}")
         signed_url = r.headers.get("Location")
         if not signed_url:
             m = re.search(r"https://data\.uspto\.gov/[^\s\"]+", r.text)
@@ -289,9 +285,7 @@ def _fetch_grant_xml(file_uri: str, api_key: str) -> str | None:
             signed_url = m.group(0).rstrip(".")
         rr = requests.get(signed_url, timeout=60)
         if rr.status_code in _GRANT_AUTH_ERROR_STATUSES:
-            raise GrantFetchError(
-                f"signed-URL download returned HTTP {rr.status_code}"
-            )
+            raise GrantFetchError(f"signed-URL download returned HTTP {rr.status_code}")
         if rr.status_code != 200:
             log.warning("Grant XML download returned %s", rr.status_code)
             return None
@@ -320,10 +314,7 @@ def _parse_grant_xml(xml: str) -> tuple[str | None, str | None]:
     claim_blocks = re.findall(r"<claim(?:\s[^>]*)?>(.*?)</claim>", xml, re.DOTALL)
     claims_text: str | None = None
     if claim_blocks:
-        cleaned = [
-            re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", b)).strip()
-            for b in claim_blocks
-        ]
+        cleaned = [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", b)).strip() for b in claim_blocks]
         cleaned = [c for c in cleaned if c]
         if cleaned:
             claims_text = "\n".join(cleaned)
