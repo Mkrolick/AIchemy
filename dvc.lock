@@ -85,50 +85,50 @@ stages:
       size: 2207073
     - path: data/interim/uspto/reactions_raw.parquet
       hash: md5
-      md5: 1d0415f4178478306703ec80587e81f2
-      size: 283180057
+      md5: 03eeb7d992fa5e259ee6561517c8a7b6
+      size: 278353348
     - path: src/aichemy/preprocessing/chem
       hash: md5
-      md5: b1c596d46b630a58a44554dd90c606f1.dir
-      size: 8517
+      md5: 62b4aec81c611c4bc0c25ef3fc47b656.dir
+      size: 13612
       nfiles: 6
     - path: src/aichemy/preprocessing/normalize.py
       hash: md5
-      md5: ad03393455b7fab44a04c061eadc174d
-      size: 5203
+      md5: 410ecff8b36a0b7d505bfd3d24d7527c
+      size: 5882
     outs:
     - path: data/interim/normalized/molecules.parquet
       hash: md5
-      md5: daa764ce80f734313b046dae02c88751
-      size: 206954317
+      md5: dba7725503aa31f394d746cee3437b9b
+      size: 249056113
     - path: data/interim/normalized/reactions.parquet
       hash: md5
-      md5: 00dc29dd33151a4c154f14e809d27cf9
-      size: 135007777
+      md5: 13ae76c52cfd59b2a3d776ea2243b7fc
+      size: 279164866
   dedup_molecules:
     cmd: uv run aichemy dedup molecules --config configs/default.yaml
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: a61073fe388097782d898a67fb458bde
-      size: 358
+      md5: 791012b24897dfd818b473a2981b1f84
+      size: 866
     - path: data/interim/normalized/molecules.parquet
       hash: md5
-      md5: 55a9ea96efc00867a16a9fb063cd9292
-      size: 835
+      md5: dba7725503aa31f394d746cee3437b9b
+      size: 249056113
     - path: src/aichemy/preprocessing/dedup/molecules.py
       hash: md5
-      md5: cf6611d4c354bf97c8ecd8dfbe976ad8
-      size: 2865
+      md5: 41e5297535818d73e331e8c18e040e9d
+      size: 3339
     outs:
     - path: data/interim/deduped/dedup_map.json
       hash: md5
-      md5: 8a80554c91d9fca8acb82f023de02f11
-      size: 3
+      md5: b5abc410903a3a92f5397aabba981199
+      size: 697229338
     - path: data/interim/deduped/molecules.parquet
       hash: md5
-      md5: 55a9ea96efc00867a16a9fb063cd9292
-      size: 835
+      md5: 44e1945729463a7f2923a9dbfb371da0
+      size: 165669553
   dedup_reactions:
     cmd: uv run aichemy dedup reactions --config configs/default.yaml
     deps:

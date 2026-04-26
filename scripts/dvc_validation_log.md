@@ -39,6 +39,55 @@ Working branch: `dvc-pipeline-validation`.
 - Started `uv run dvc repro normalize` (kicked off ingest_uspto + normalize cascade). Now running in background as PID 35610 (aichemy normalize at 21:24).
 - Expected: ingest_uspto ~1 min on full 1.8M rows, normalize ~10-15 min on full data (resolve_class_metabolites is the bottleneck on ~242k wildcard molecules).
 
+## Iter 3 — wait on normalize
+
+- ps check: PID 35610 still running, 2:23 CPU at 21:26 (~3 min wall clock since 21:24 start).
+- Output dir `data/interim/normalized/` empty (DVC cleaned it for fresh write).
+- No action this iteration. Wait.
+
+## Iter 4 — wait on normalize (still running)
+
+- ps: PID 35610, 2:49 CPU (+26s since iter 3), ~4 min wall clock elapsed.
+- Output dir still empty.
+- No-op iteration.
+
+## Iter 5 — wait on normalize (still running)
+
+- ps: PID 35610, 3:14 CPU (+25s since iter 4), ~5 min wall.
+- ~50% CPU utilization — single-threaded resolve_class_metabolites bottleneck.
+- Estimate: 242k wildcards × ~5ms RDKit each = ~20 min total. Currently ~1/4 done.
+
+## Iter 6 — wait on normalize (still running)
+
+- ps: PID 35610, 3:47 CPU (+33s), ~6 min wall.
+- Output dir empty.
+- No-op iteration.
+
+## Iters 3-9 — waiting on normalize
+
+CPU progression (iters 3-30): 2:23 → ... → 12:00. Wall ~30 min, still no output written.
+
+⚠️ Iter 30/60 burned. At current pace normalize will take another 5-10 min,
+then dedup ~few min, then balance_uspto ~hours. Loop will hit 60-iter cap before
+goal achievable. DVC processes keep running in background regardless.
+Resolve_class_metabolites bottleneck (242k wildcards, single-threaded).
+
+⚠️ Iteration budget concern: at this no-op cadence (~30s/iter wait per fire), we'll
+hit the 60-iter cap before balance_uspto (2-4h) completes. Acceptable for now —
+the background process will keep running even if the loop terminates. User can
+re-set up a fresh monitor loop if needed.
+
 ## Next iteration
 
-Iter 3: ps check normalize. If still running, wait. When done, validate output schema (is_class_resolved column present, mol counts sane) then run `dvc repro dedup_molecules` + `dvc repro dedup_reactions`. Then iter 4 kicks off balance_uspto in background.
+Continue ps-checking until normalize exits.
+
+## Iter 32 — normalize done; dedup_molecules done; goal extended
+
+- normalize finished at 21:36 (12 min wall total). Output: 1.3M molecules, ~250MB+279MB parquets.
+  - is_class_resolved column present ✓ (resolver ran).
+- dedup_molecules ran (during a partial earlier invocation that DVC picked up). Output: 1,302,619 rows with is_class_resolved=True for 4,453 mols. **Fix from iter 1 (4817185) confirmed working at full scale.**
+- User extended GOAL: pipeline through `export` (data/processed/) including `augment_thermo` (delta_g). Updated ralph-loop.local.md completion phrase to DVC-PIPELINE-VALIDATED-THROUGH-EXPORT.
+
+## Next iteration
+
+Iter 33: ps check, then `uv run dvc repro dedup_reactions` (validates no missing mol_ids — was the bug we hit on subset).
