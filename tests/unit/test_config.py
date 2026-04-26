@@ -142,11 +142,22 @@ def test_invalid_key_raises(tmp_path: Path) -> None:
 
 
 def test_default_yaml_parses() -> None:
-    """configs/default.yaml should load and produce exactly the Pydantic defaults."""
+    """configs/default.yaml should load and match the Pydantic defaults except
+    for the explicit `aichemy_pricing` overrides (curated vendor allowlist +
+    max_workers=100) baked in for full-corpus production runs."""
     repo_root = Path(__file__).resolve().parents[2]
     default_path = repo_root / "configs" / "default.yaml"
     cfg = load_config(default_path)
     expected = PreprocessingConfig()
+    expected.prices.aichemy_pricing.allowed_sources = [
+        "Fluorochem",
+        "MedChemExpress",
+        "Tocris Bioscience",
+        "Molbase",
+        "Enamine",
+        "Santa Cruz Biotechnology, Inc.",
+    ]
+    expected.prices.aichemy_pricing.max_workers = 100
     assert cfg == expected
 
 
@@ -195,3 +206,23 @@ def test_aichemy_pricing_config_rejects_max_workers_below_one() -> None:
 
     with pytest.raises(ValidationError):
         AichemyPricingConfig.model_validate({"max_workers": 0})
+
+
+def test_default_yaml_aichemy_pricing_block_has_curated_allowed_sources_and_workers(
+    tmp_path,
+) -> None:
+    from pathlib import Path
+
+    import yaml
+
+    from aichemy.config import PreprocessingConfig
+
+    raw = yaml.safe_load(Path("configs/default.yaml").read_text())
+    cfg = PreprocessingConfig.model_validate(raw)
+    aip = cfg.prices.aichemy_pricing
+    # Curated vendor allowlist matches the L2/L3-priceable vendors we ship
+    # parsers/clients for. Avoids loading 491M PubChem records into RAM.
+    assert aip.allowed_sources is not None
+    assert "Fluorochem" in aip.allowed_sources
+    assert "Enamine" in aip.allowed_sources
+    assert aip.max_workers >= 1
