@@ -31,6 +31,14 @@ Working branch: `dvc-pipeline-validation`.
   - balance_uspto → 196 USPTO rows in 4 chunks of 50, **58 balanced (29.6%)** at conf>0.8
 - Commit: b5b2a4d
 
+## Iter 2 — kick off normalize on full data
+
+- ps clean on entry.
+- `dvc status` showed lots of stale stages. Notably: `fetch_raw` deps changed (cli.py) but outputs (data/raw) actually fine. To skip an unwanted ~1.3GB re-download of MetaNetX TSVs: `uv run dvc commit fetch_raw -f` to declare current disk state canonical.
+- `ingest_metanetx`: up to date (no re-run needed).
+- Started `uv run dvc repro normalize` (kicked off ingest_uspto + normalize cascade). Now running in background as PID 35610 (aichemy normalize at 21:24).
+- Expected: ingest_uspto ~1 min on full 1.8M rows, normalize ~10-15 min on full data (resolve_class_metabolites is the bottleneck on ~242k wildcard molecules).
+
 ## Next iteration
 
-Iter 2: kick off `uv run dvc repro` on FULL data. The two fixes above (4817185, b5b2a4d) cause DVC to re-run from ingest_uspto onwards (uspto.py changed → ingest_uspto stale → normalize stale → ... → balance_uspto stale). Expected runtime: minutes for ingest+normalize+dedup, ~4 hours for balance_uspto on full 1M rows. Run balance_uspto in background (run_in_background=true). Subsequent iterations monitor via ps until completion.
+Iter 3: ps check normalize. If still running, wait. When done, validate output schema (is_class_resolved column present, mol counts sane) then run `dvc repro dedup_molecules` + `dvc repro dedup_reactions`. Then iter 4 kicks off balance_uspto in background.
