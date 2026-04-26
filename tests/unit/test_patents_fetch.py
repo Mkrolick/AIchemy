@@ -81,6 +81,28 @@ def test_fetch_patents_records_error_status_after_retry_exhaustion():
     assert out[0].fetch_status == "error"
 
 
+@responses.activate
+def test_fetch_grant_xml_auth_error_sets_error_status():
+    """401 on the file-location lookup propagates to fetch_status='error'."""
+    responses.add(
+        responses.GET,
+        ENDPOINT,
+        json=json.loads(FIXTURE.read_text()),
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        GRANT_FILE_URI,
+        status=401,
+    )
+
+    out = fetch_patents(["7456123"], endpoint=ENDPOINT, max_retries=1)
+    assert len(out) >= 1
+    by_id = {p.patent_number: p for p in out}
+    assert by_id["7456123"].fetch_status == "error"
+    assert by_id["7456123"].abstract is None
+
+
 def test_patent_metadata_dataclass_shape():
     p = PatentMetadata(
         patent_number="123",
