@@ -1,5 +1,6 @@
 """Unit tests for PubChemSdfResolver. Uses a 10-record fixture captured from
 the real FTP dump (https://ftp.ncbi.nlm.nih.gov/pubchem/Substance/CURRENT-Full/SDF/)."""
+
 from __future__ import annotations
 
 from aichemy_pricing.resolvers.pubchem_sdf import PubChemSdfResolver

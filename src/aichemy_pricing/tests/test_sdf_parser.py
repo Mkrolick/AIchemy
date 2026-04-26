@@ -1,4 +1,5 @@
 """Unit tests for the streaming SDF parser shared by all SDF-based resolvers."""
+
 from __future__ import annotations
 
 import gzip

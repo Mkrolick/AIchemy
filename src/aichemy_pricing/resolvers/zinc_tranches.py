@@ -17,6 +17,7 @@ This makes the resolver robust to layout variation across cohorts.
 The `combiblocksbb` short_name is the recognized ZINC short_name for
 Combi-Blocks (CLAIM-20).
 """
+
 from __future__ import annotations
 
 import re
@@ -64,7 +65,7 @@ class ZincTrancheResolver:
     index: dict[str, list[ResolverHit]] = field(default_factory=lambda: defaultdict(list))
 
     @classmethod
-    def from_files(cls, paths: list[Path]) -> "ZincTrancheResolver":
+    def from_files(cls, paths: list[Path]) -> ZincTrancheResolver:
         self = cls()
         for path in paths:
             with Path(path).open("rt", errors="replace") as f:

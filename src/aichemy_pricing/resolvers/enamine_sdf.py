@@ -13,6 +13,7 @@ Per CLAIM-07: canonical product URL is
   https://enaminestore.com/catalog/EN300-{N}     (no www)
 SKU width is variable (6 to 8+ digits) — regex is `EN300-\\d+`, not strictly 6.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -40,7 +41,7 @@ class EnamineSdfResolver:
     index: dict[str, list[ResolverHit]] = field(default_factory=lambda: defaultdict(list))
 
     @classmethod
-    def from_files(cls, paths: list[Path]) -> "EnamineSdfResolver":
+    def from_files(cls, paths: list[Path]) -> EnamineSdfResolver:
         self = cls()
         for path in paths:
             for rec in iter_sdf_records(Path(path)):

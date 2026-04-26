@@ -1,4 +1,5 @@
 """Unit tests for EnamineSdfResolver."""
+
 from __future__ import annotations
 
 import textwrap
@@ -21,7 +22,8 @@ def test_resolver_normalizes_bare_id_to_en300_prefix(tmp_path) -> None:
     """If the SDF carries a bare numeric id (no EN300- prefix), the resolver
     must normalize it. Build a tiny synthetic SDF to exercise this path."""
     p = tmp_path / "tiny.sdf"
-    p.write_text(textwrap.dedent("""\
+    p.write_text(
+        textwrap.dedent("""\
         Foo
         ...
         > <InChIKey>
@@ -31,7 +33,8 @@ def test_resolver_normalizes_bare_id_to_en300_prefix(tmp_path) -> None:
         7605608
 
         $$$$
-        """))
+        """)
+    )
     res = EnamineSdfResolver.from_files([p])
     hits = res.resolve("BSYNRYMUTXBXSQ-UHFFFAOYSA-N")
     assert hits and hits[0].sku == "EN300-7605608"

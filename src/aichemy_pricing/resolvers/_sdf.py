@@ -7,6 +7,7 @@ parser. Without gzip detection, opening deflate bytes as `errors="replace"`
 text silently yields zero records (no UnicodeDecodeError, no log line) and
 every downstream price lookup returns None for the wrong reason.
 """
+
 from __future__ import annotations
 
 import gzip
