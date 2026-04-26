@@ -57,7 +57,7 @@ def test_is_balanced_ignores_hydrogens_when_configured() -> None:
     assert is_balanced(reactants, products, ignore_elements=["H"]) is True
 
 
-def test_validate_reactions_adds_balanced_column() -> None:
+def test_validate_reactions_adds_rdkit_balanced_column() -> None:
     df = pl.DataFrame(
         {
             "rxn_id": ["r1", "r2"],
@@ -75,4 +75,4 @@ def test_validate_reactions_adds_balanced_column() -> None:
         }
     )
     out = validate_reactions(df)
-    assert out["balanced"].to_list() == [True, False]
+    assert out["rdkit_balanced"].to_list() == [True, False]

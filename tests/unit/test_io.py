@@ -139,5 +139,6 @@ def test_write_empty_reactions_is_readable(tmp_path: Path) -> None:
         "yield_rate",
         "delta_g",
         "balanced",
+        "rdkit_balanced",
         "source",
     }

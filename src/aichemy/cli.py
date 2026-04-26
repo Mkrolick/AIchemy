@@ -416,13 +416,24 @@ def balance_uspto(
 
     other = reactions.filter(~uspto_mask)
     merged = pl.concat([other, uspto_balanced], how="diagonal_relaxed")
+
+    # Drop rows where balanced=False. For USPTO this means SYN-RBL didn't
+    # solve at confidence > threshold; for MetaNetX it means the source's
+    # is_balanced flag was 'N'. Keeping only balanced rows means downstream
+    # stages and the final processed parquet contain only mass-balanced
+    # reactions (per-source claim). The strict per-element atom-count check
+    # runs in balance_validate and writes its result to `rdkit_balanced`.
+    pre_drop = merged.height
+    merged = merged.filter(pl.col("balanced"))
+    dropped = pre_drop - merged.height
     write_reactions(merged, output_path)
 
     total_min = (time.time() - overall_start) / 60
     typer.echo(
         f"[balance uspto] DONE in {total_min:.1f} min: "
         f"balanced {n_recovered} of {uspto_count} USPTO rows "
-        f"at conf>{confidence_threshold} (kept {merged.height} total)."
+        f"at conf>{confidence_threshold}; "
+        f"dropped {dropped} unbalanced rows; kept {merged.height} balanced total."
     )
 
 
@@ -431,7 +442,7 @@ def balance_validate(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """Universal atom-count validation; populates balanced: bool for all reactions."""
+    """Universal atom-count validation; populates rdkit_balanced: bool for all reactions."""
     cfg = _load(config, override)
     input_path = interim_path(cfg, "balanced", "reactions.parquet")
     output_path = interim_path(cfg, "validated", "reactions.parquet")
@@ -452,7 +463,8 @@ def balance_validate(
     write_reactions(validated, output_path)
     typer.echo(
         f"[balance validate] wrote {validated.height} rows "
-        f"({validated.filter(validated['balanced']).height} balanced)."
+        f"({validated.filter(validated['rdkit_balanced']).height} rdkit_balanced "
+        f"of {validated.filter(validated['balanced']).height} balanced)."
     )
 
 
