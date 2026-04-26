@@ -1,0 +1,11 @@
+# Override config for end-to-end pipeline validation on a small subset.
+#
+# Use with: aichemy <stage> --config configs/default.yaml --override configs/subset.yaml
+#
+# Redirects all data I/O to data_subset/ (raw, interim, processed). The dvc.yaml
+# stages are hardcoded to data/, so this override is for direct CLI invocation
+# only — NOT for `dvc repro`. (DVC orchestration uses real data.)
+#
+# Build the subset first: ./scripts/build_subset.sh
+paths:
+  data_dir: data_subset
