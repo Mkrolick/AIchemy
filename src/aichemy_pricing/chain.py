@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -63,6 +64,11 @@ class CachedPriceLookup:
 
     Caches BOTH hits and misses (None), so a known-missing SKU isn't re-fetched.
     Entries older than `ttl_days` are treated as cache misses and re-fetched.
+
+    Thread-safe: each calling thread gets its own `sqlite3.Connection` via
+    `threading.local`. SQLite handles concurrent writers via its file-level
+    lock; conflicts retry transparently because we use `isolation_level=None`
+    (autocommit). Required for the parallel `augment_prices` dispatcher.
     """
 
     name = "cache"
@@ -71,11 +77,25 @@ class CachedPriceLookup:
         self.inner = inner
         self.db_path = Path(db_path)
         self.ttl = timedelta(days=ttl_days)
-        self._conn = sqlite3.connect(str(self.db_path), isolation_level=None)
-        self._conn.executescript(_SCHEMA)
+        self._tls = threading.local()
+        # Initialize schema once on the constructing thread; per-thread
+        # connections opened lazily in `_conn()`.
+        bootstrap = sqlite3.connect(str(self.db_path), isolation_level=None)
+        try:
+            bootstrap.executescript(_SCHEMA)
+        finally:
+            bootstrap.close()
+
+    def _conn(self) -> sqlite3.Connection:
+        conn = getattr(self._tls, "conn", None)
+        if conn is None:
+            conn = sqlite3.connect(str(self.db_path), isolation_level=None)
+            self._tls.conn = conn
+        return conn
 
     def lookup(self, ref: VendorRef) -> PriceQuote | None:
-        row = self._conn.execute(
+        conn = self._conn()
+        row = conn.execute(
             "SELECT quote_json, fetched_at FROM quote_cache WHERE vendor=? AND sku=?",
             (ref.vendor, ref.sku),
         ).fetchone()
@@ -85,7 +105,7 @@ class CachedPriceLookup:
             if datetime.now(UTC) - fetched < self.ttl:
                 return None if quote_json is None else PriceQuote.model_validate_json(quote_json)
         result = self.inner.lookup(ref)
-        self._conn.execute(
+        conn.execute(
             "INSERT OR REPLACE INTO quote_cache(vendor, sku, quote_json, fetched_at) "
             "VALUES (?, ?, ?, ?)",
             (
