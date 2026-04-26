@@ -18,6 +18,7 @@ from aichemy.preprocessing.augment.directionality import DirectionalityMode
 from aichemy.preprocessing.balance import validate as balance_validate_module
 from aichemy.preprocessing.io import (
     interim_path,
+    licenses_path,
     patents_path,
     processed_path,
     raw_path,
@@ -642,6 +643,37 @@ def patents_fetch(
 
     n_ok = sum(1 for p in items if p.fetch_status == "ok")
     typer.echo(f"[patents fetch] wrote {len(items)} rows ({n_ok} ok) → {out_path}")
+
+
+@patents_app.command("classify-cpc")
+def patents_classify_cpc(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Classify each (rxn_id, patent) pair via CPC-code rules."""
+    from datetime import date
+
+    from aichemy.preprocessing.patents.cpc import (
+        classify_dataframe,
+        load_cpc_rules,
+    )
+
+    cfg = _load(config, override)
+    reactions = read_reactions(interim_path(cfg, "augmented", "reactions_full.parquet"))
+    patents = pl.read_parquet(patents_path(cfg, "patent_metadata.parquet"))
+    rules = load_cpc_rules(cfg.licenses.cpc_rules_path)
+
+    out = classify_dataframe(reactions, patents, rules=rules, today=date.today())
+    out_path = licenses_path(cfg, "cpc_classifications.parquet")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out.write_parquet(out_path)
+
+    n_ambig = int(out["cpc_ambiguous"].sum())
+    n_active = int(out["patent_active"].sum())
+    typer.echo(
+        f"[patents classify-cpc] {out.height} rows "
+        f"({n_active} active, {n_ambig} ambiguous → LLM) → {out_path}"
+    )
 
 
 @app.command("export")
