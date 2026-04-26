@@ -111,7 +111,11 @@ class AichemyPricingConfig(BaseModel):
     """Backend-specific config for the standalone `aichemy_pricing` package.
 
     Path fields point at the offline catalog (PubChem SDF dir + a SQLite cache
-    location). Free-form sub-keys are forbidden so typos surface at load time.
+    location). `allowed_sources` filters the in-memory InChIKey index to a
+    vendor allowlist — REQUIRED for full-scale runs (491M SIDs OOM otherwise;
+    see `aichemy_pricing.resolvers.pubchem_sdf` docstring). `max_workers`
+    controls the `augment_prices` thread pool size (1 = today's serial
+    behavior; 100 ~ master-plan target wall-clock for 100K compounds).
     """
 
     model_config = {"extra": "forbid"}
@@ -120,6 +124,8 @@ class AichemyPricingConfig(BaseModel):
     cache_path: Path = Field(
         default_factory=lambda: Path("data/interim/aichemy_pricing_cache.sqlite")
     )
+    allowed_sources: list[str] | None = None
+    max_workers: int = Field(default=1, ge=1)
 
 
 class PricesConfig(BaseModel):
