@@ -76,6 +76,7 @@ def dedup_molecules(df: pl.DataFrame) -> tuple[pl.DataFrame, dict[str, str]]:
                 "carbon_count": template["carbon_count"],
                 "price_per_gram": template["price_per_gram"],
                 "source_refs": all_refs,
+                "is_class_resolved": template.get("is_class_resolved", False),
             }
         )
 
@@ -85,6 +86,7 @@ def dedup_molecules(df: pl.DataFrame) -> tuple[pl.DataFrame, dict[str, str]]:
             "carbon_count": pl.Int64,
             "price_per_gram": pl.Float64,
             "source_refs": pl.List(pl.Utf8),
+            "is_class_resolved": pl.Boolean,
         },
     )
     return deduped, dedup_map
