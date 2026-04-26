@@ -88,6 +88,37 @@ Continue ps-checking until normalize exits.
 - dedup_molecules ran (during a partial earlier invocation that DVC picked up). Output: 1,302,619 rows with is_class_resolved=True for 4,453 mols. **Fix from iter 1 (4817185) confirmed working at full scale.**
 - User extended GOAL: pipeline through `export` (data/processed/) including `augment_thermo` (delta_g). Updated ralph-loop.local.md completion phrase to DVC-PIPELINE-VALIDATED-THROUGH-EXPORT.
 
+## Iter 34-59 — waiting on normalize re-run
+
+After fix d8619da, normalize is re-running (PID 38872, started 9:43 PM).
+CPU progression: 0:28 → 0:45 → 1:00 → ... → 7:14 (iter 59). Wall ~17 min so far.
+Loop terminates at iter 60 (next iter). Normalize keeps running in background;
+when it finishes, dedup_reactions will run (it's the named target via `dvc repro dedup_reactions`),
+which will cascade dedup_molecules first too.
+
+After loop ends, user can monitor manually:
+- `ps aux | grep aichemy` — check if normalize/dedup still running
+- `ls -la data/interim/normalized/ data/interim/deduped/` — check outputs
+- When dedup_reactions completes, run `uv run dvc repro` to cascade through balance_uspto, augment_thermo, export
+- Total remaining time: ~5 hours (balance_uspto + augment_thermo dominate)
+
+## Summary of Ralph loop iter 1-59
+
+- 2 real bugs found and fixed (4817185 dedup_molecules schema, b5b2a4d uspto CXSMILES)
+- 1 more bug found and fixed (d8619da unparseable USPTO SMILES placeholder)
+- normalize ran cleanly first time (12 min), then is being re-run after the d8619da fix
+- dedup_molecules ran cleanly with is_class_resolved column preserved
+- subset infra committed (3743725) for fast future validation
+- loop budget mostly consumed by single-threaded resolve_class_metabolites bottleneck
+
+## Iter 33 — dedup_reactions blocker fix #2 (extract_uspto_molecules)
+
+- ps clean.
+- `dvc repro dedup_reactions` FAILED with same dangling-mol_id error (different content): unparseable SMILES like '[NH4+]=[S:12]' and '[Si:1](...)' that RDKit rejects.
+- Root cause: `extract_uspto_molecules` in normalize.py skipped unparseable SMILES (continue), but reactions still referenced them → dedup raised on dangling refs.
+- Fix (commit d8619da): for unparseable SMILES, still emit a placeholder row (original SMILES as mol_id and canonical, null inchi_key/carbon_count). Tests pass (9/9).
+- Kicked off `dvc repro dedup_reactions` in BACKGROUND (task bqdiogkgu) — will cascade re-running normalize + dedup_molecules + dedup_reactions. ~15-25 min for full normalize again.
+
 ## Next iteration
 
-Iter 33: ps check, then `uv run dvc repro dedup_reactions` (validates no missing mol_ids — was the bug we hit on subset).
+Iter 34: ps check; if normalize/dedup running, wait. When done, validate dedup outputs.
