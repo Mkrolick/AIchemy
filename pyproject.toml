@@ -32,7 +32,8 @@ pricing = [
   "pydantic>=2.6",
   "typer>=0.12",
   "rdkit>=2024.3",
-  "html2text>=2024.2",  # Browserbase Fetch returns HTML; we convert to markdown
+  "html2text>=2024.2",      # Browserbase Fetch returns HTML; we convert to markdown
+  "browserbase>=1.0,<2.0",  # Browser API SDK — JS-rendered SPA vendors via CDP
 ]
 
 [project.scripts]
