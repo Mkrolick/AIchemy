@@ -35,6 +35,7 @@ def _reactions(rows: list[dict]) -> pl.DataFrame:
         r.setdefault("yield_rate", 1.0)  # use 1.0 so arithmetic is trivial
         r.setdefault("type", "chemical")
         r.setdefault("balanced", True)
+        r.setdefault("rdkit_balanced", True)
         r.setdefault("source", "test")
         r.setdefault("delta_g", None)
         r.setdefault("reaction_smiles", ">>")
@@ -169,12 +170,14 @@ def test_activated_reactions_are_always_from_balanced_set() -> None:
                 "reactants": [{"mol_id": "A", "coefficient": 1.0}],
                 "products": [{"mol_id": "B", "coefficient": 1.0}],
                 "balanced": True,
+                "rdkit_balanced": True,
             },
             {
                 "rxn_id": "r_unbal",
                 "reactants": [{"mol_id": "A", "coefficient": 1.0}],
                 "products": [{"mol_id": "C", "coefficient": 1.0}],
                 "balanced": False,
+                "rdkit_balanced": False,
             },
         ]
     )
