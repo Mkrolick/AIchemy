@@ -382,11 +382,10 @@ def make_lookup(config: PreprocessingConfig) -> PriceLookup:
                 catalog_dir,
             )
             return StubPriceLookup()
+        allowed = cfg.aichemy_pricing.allowed_sources
         resolver = PubChemSdfResolver.from_files(
             sdf_files,
-            allowed_sources=set(cfg.aichemy_pricing.allowed_sources)
-            if cfg.aichemy_pricing.allowed_sources
-            else None,
+            allowed_sources=set(allowed) if allowed is not None else None,
         )
         pricing_chain = build_default_chain(cache_path=cache_path)
         return _InchikeyAdapter(LookupByInchikey(resolver=resolver, chain=pricing_chain))

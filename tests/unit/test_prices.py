@@ -348,10 +348,26 @@ def test_augment_prices_requires_canonical_smiles() -> None:
         augment_prices(df, StubPriceLookup())
 
 
-def test_make_lookup_aichemy_pricing_passes_allowed_sources(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("config_value", "expected_kwarg"),
+    [
+        pytest.param(
+            ["Fluorochem", "Enamine"],
+            {"Fluorochem", "Enamine"},
+            id="populated-list-becomes-set",
+        ),
+        pytest.param(None, None, id="none-passes-through-as-none"),
+        pytest.param([], set(), id="empty-list-becomes-empty-set"),
+    ],
+)
+def test_make_lookup_aichemy_pricing_passes_allowed_sources(
+    monkeypatch, tmp_path, config_value, expected_kwarg
+) -> None:
     """make_lookup must thread cfg.aichemy_pricing.allowed_sources into
-    PubChemSdfResolver.from_files(). Without this, full-corpus PubChem loads
-    OOM regardless of the config setting."""
+    PubChemSdfResolver.from_files() preserving three distinct states:
+    None (no filter), [] (filter to nothing), and a populated list (filter
+    to those sources). Truthiness collapsing [] -> None is the exact OOM
+    bug Task 4 exists to prevent."""
     from aichemy.config import (
         AichemyPricingConfig,
         PreprocessingConfig,
@@ -386,13 +402,14 @@ def test_make_lookup_aichemy_pricing_passes_allowed_sources(monkeypatch, tmp_pat
             aichemy_pricing=AichemyPricingConfig(
                 catalog_dir=sdf_dir,
                 cache_path=cache_path,
-                allowed_sources=["Fluorochem", "Enamine"],
+                allowed_sources=config_value,
                 max_workers=4,
             ),
         ),
     )
 
     prices_mod.make_lookup(cfg)
-    # Resolver's `from_files(allowed_sources=...)` signature takes `set[str] | None`,
-    # so production code converts the YAML list. Compare as sets to be permissive.
-    assert captured["allowed_sources"] == {"Fluorochem", "Enamine"}
+    if expected_kwarg is None:
+        assert captured["allowed_sources"] is None
+    else:
+        assert captured["allowed_sources"] == expected_kwarg
