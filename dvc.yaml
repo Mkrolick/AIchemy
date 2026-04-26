@@ -114,6 +114,15 @@ stages:
     outs:
       - data/interim/augmented/reactions_full.parquet
 
+  select_reactions:
+    cmd: uv run aichemy select reactions --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/select.py
+      - data/interim/augmented/reactions_full.parquet
+    outs:
+      - data/interim/selected/reactions.parquet
+
   augment_prices:
     cmd: uv run aichemy augment prices --config configs/default.yaml
     deps:
@@ -130,7 +139,7 @@ stages:
       - configs/default.yaml
       - src/aichemy/preprocessing/export.py
       - data/interim/augmented/molecules_priced.parquet
-      - data/interim/augmented/reactions_full.parquet
+      - data/interim/selected/reactions.parquet
     outs:
       - data/processed/reactions.parquet
       - data/processed/molecules.parquet
