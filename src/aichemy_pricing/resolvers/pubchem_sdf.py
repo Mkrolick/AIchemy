@@ -10,6 +10,7 @@ Per CLAIM-04 (PARTIAL):
   ~491M SIDs across 982 files; production runs MUST set `allowed_sources`
   to keep memory bounded.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -18,6 +19,11 @@ from pathlib import Path
 
 from aichemy_pricing.resolvers._sdf import iter_sdf_records
 from aichemy_pricing.types import ResolverHit
+
+
+def _first(rec: dict[str, list[str]], tag: str) -> str | None:
+    v = rec.get(tag)
+    return v[0] if v else None
 
 
 @dataclass
@@ -30,14 +36,14 @@ class PubChemSdfResolver:
         cls,
         paths: list[Path],
         allowed_sources: set[str] | None = None,
-    ) -> "PubChemSdfResolver":
+    ) -> PubChemSdfResolver:
         self = cls()
         for path in paths:
             for rec in iter_sdf_records(Path(path)):
-                ik = (rec.get("PUBCHEM_IUPAC_INCHIKEY") or [None])[0]
-                src = (rec.get("PUBCHEM_EXT_DATASOURCE_NAME") or [None])[0]
-                regid = (rec.get("PUBCHEM_EXT_DATASOURCE_REGID") or [None])[0]
-                url = (rec.get("PUBCHEM_EXT_DATASOURCE_URL") or [None])[0]
+                ik = _first(rec, "PUBCHEM_IUPAC_INCHIKEY")
+                src = _first(rec, "PUBCHEM_EXT_DATASOURCE_NAME")
+                regid = _first(rec, "PUBCHEM_EXT_DATASOURCE_REGID")
+                url = _first(rec, "PUBCHEM_EXT_DATASOURCE_URL")
                 if not (ik and src and regid):
                     continue
                 if allowed_sources is not None and src not in allowed_sources:
