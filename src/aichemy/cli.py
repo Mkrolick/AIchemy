@@ -675,11 +675,22 @@ def patents_fetch(
     config: Path = ConfigOpt,
     override: list[Path] = OverrideOpt,
 ) -> None:
-    """Fetch PatentsView metadata for every USPTO patent referenced by reactions."""
+    """Fetch USPTO ODP metadata for every USPTO patent referenced by reactions."""
+    import os
+
     from aichemy.preprocessing.patents.fetch import (
+        API_KEY_ENV,
         fetch_patents,
         write_metadata_parquet,
     )
+
+    if not os.environ.get(API_KEY_ENV):
+        typer.echo(
+            f"[patents fetch] {API_KEY_ENV} env var is required "
+            "(get a free key at https://developer.uspto.gov)",
+            err=True,
+        )
+        raise typer.Exit(1)
 
     cfg = _load(config, override)
     reactions = read_reactions(interim_path(cfg, "augmented", "reactions_full.parquet"))

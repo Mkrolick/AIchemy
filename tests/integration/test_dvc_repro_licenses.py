@@ -1,8 +1,8 @@
 """End-to-end integration test for the licensing stages.
 
-Runs the four new pipeline stages on a tiny synthetic fixture, with
-PatentsView calls stubbed via ``responses`` and Anthropic calls stubbed
-via a ``MagicMock`` client. Verifies the data flows through to the
+Runs the four new pipeline stages on a tiny synthetic fixture, with USPTO
+ODP calls stubbed via ``responses`` and Anthropic calls stubbed via a
+``MagicMock`` client. Verifies the data flows through to the
 ``augment_licenses`` output with correct columns for both USPTO and
 MetaNetX rows (the latter exercises the left-join + ``fill_null(False)``
 fallback path).
@@ -18,7 +18,20 @@ import polars as pl
 import pytest
 import responses
 
-PATENTSVIEW = "https://search.patentsview.org/api/v1/patent"
+ODP_SEARCH = "https://api.uspto.gov/api/v1/patent/applications/search"
+ODP_FILE_URI = (
+    "https://api.uspto.gov/api/v1/datasets/products/files/PTGRXML-SPLT/"
+    "2015/ipg150915/12345678_07456123.xml"
+)
+ODP_SIGNED_URL = "https://data.uspto.gov/files/integration-sample.xml"
+SAMPLE_GRANT_XML = """<?xml version="1.0"?>
+<us-patent-grant>
+  <abstract id="abstract"><p>A medicinal preparation.</p></abstract>
+  <claims>
+    <claim id="CLM-00001"><claim-text>1. A composition comprising the active.</claim-text></claim>
+  </claims>
+</us-patent-grant>
+"""
 
 
 @pytest.fixture
@@ -54,23 +67,36 @@ def test_full_license_flow_with_stubbed_apis(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     responses.add(
-        responses.POST,
-        PATENTSVIEW,
+        responses.GET,
+        ODP_SEARCH,
         json={
-            "patents": [
+            "count": 1,
+            "patentFileWrapperDataBag": [
                 {
-                    "patent_number": "7456123",
-                    "patent_date": "2008-11-25",
-                    "patent_abstract": "A medicinal preparation for…",
-                    "claims": [{"text": "1. A composition comprising…"}],
-                    "cpcs": [{"cpc_group_id": "A61K 31/505"}],
-                    "assignees": [{"assignee_organization": "Acme"}],
-                    "application": {"filing_date": "2015-03-14"},
+                    "applicationNumberText": "12345678",
+                    "applicationMetaData": {
+                        "patentNumber": "7456123",
+                        "grantDate": "2015-09-15",
+                        "filingDate": "2015-03-14",
+                        "inventionTitle": "MEDICINAL PREPARATION",
+                        "cpcClassificationBag": ["A61K 31/505"],
+                    },
+                    "assignmentBag": [{"assigneeBag": [{"assigneeNameText": "Acme"}]}],
+                    "grantDocumentMetaData": {"fileLocationURI": ODP_FILE_URI},
                 }
-            ]
+            ],
+            "requestIdentifier": "integration-test",
         },
         status=200,
     )
+    responses.add(
+        responses.GET,
+        ODP_FILE_URI,
+        body=f'"Use redirect URL to download: {ODP_SIGNED_URL}. IMPORTANT..."',
+        status=200,
+    )
+    responses.add(responses.GET, ODP_SIGNED_URL, body=SAMPLE_GRANT_XML, status=200)
+    monkeypatch.setenv("USPTO_ODP_API_KEY", "fake-key-for-test")
 
     fake_block = MagicMock()
     fake_block.type = "tool_use"
@@ -108,7 +134,7 @@ def test_full_license_flow_with_stubbed_apis(
     reactions = pl.read_parquet(fake_reactions_full)
 
     # 1. fetch_patent_metadata
-    items = fetch_patents(["7456123"], endpoint=PATENTSVIEW, max_retries=1)
+    items = fetch_patents(["7456123"], endpoint=ODP_SEARCH, max_retries=1)
     patents_path = tmp_path / "patent_metadata.parquet"
     write_metadata_parquet(items, patents_path)
 
