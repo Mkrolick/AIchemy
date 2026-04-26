@@ -185,16 +185,39 @@ def normalize(
     else:
         molecules = mnx_mols
 
+    # Resolve MetaNetX class metabolites (SMILES with [*] wildcards) to concrete
+    # exemplars — otherwise they carry through with null inchi_key and never
+    # collapse during dedup.
+    from aichemy.preprocessing.chem.resolve_class import (
+        drop_unreferenced_empty_molecules,
+        resolve_class_metabolites,
+    )
+
+    rows_before = molecules.height
+    nulls_before = molecules.filter(pl.col("inchi_key").is_null()).height
+    molecules = resolve_class_metabolites(molecules)
+    n_resolved = molecules.filter(pl.col("is_class_resolved")).height
+
     filtered = normalize_module.filter_reactions_by_carbon(
         reactions, molecules, min_carbon=cfg.filter.min_carbon_count
     )
     molecules = normalize_module.filter_molecules_by_usage(molecules, filtered)
 
+    # Drop empty-SMILES MetaNetX catalog entries that don't appear in any
+    # surviving (post-carbon-filter) reaction. Run AFTER the carbon filter
+    # so molecules referenced only by dropped small-molecule reactions don't
+    # linger as ghosts.
+    molecules = drop_unreferenced_empty_molecules(molecules, filtered)
+    nulls_after = molecules.filter(pl.col("inchi_key").is_null()).height
+    rows_after = molecules.height
+
     write_molecules(molecules, mol_out)
     write_reactions(filtered, rxn_out)
     typer.echo(
         f"[normalize] wrote {molecules.height} molecules, {filtered.height} reactions "
-        f"(kept {filtered.height} of {reactions.height} after carbon filter)."
+        f"(kept {filtered.height} of {reactions.height} after carbon filter); "
+        f"resolved {n_resolved} class metabolites, dropped {rows_before - rows_after} "
+        f"empty-SMILES orphans (null InChIKey: {nulls_before} -> {nulls_after})."
     )
 
 
