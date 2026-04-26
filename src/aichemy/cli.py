@@ -416,24 +416,46 @@ def balance_uspto(
 
     other = reactions.filter(~uspto_mask)
     merged = pl.concat([other, uspto_balanced], how="diagonal_relaxed")
-
-    # Drop rows where balanced=False. For USPTO this means SYN-RBL didn't
-    # solve at confidence > threshold; for MetaNetX it means the source's
-    # is_balanced flag was 'N'. Keeping only balanced rows means downstream
-    # stages and the final processed parquet contain only mass-balanced
-    # reactions (per-source claim). The strict per-element atom-count check
-    # runs in balance_validate and writes its result to `rdkit_balanced`.
-    pre_drop = merged.height
-    merged = merged.filter(pl.col("balanced"))
-    dropped = pre_drop - merged.height
+    # Write the audit-trail file: ALL rows preserved, with `balanced` set per
+    # SYN-RBL's confidence gate (USPTO) or curator (MetaNetX). The drop step
+    # `balance drop-unbalanced` produces the working set in interim/filtered/.
     write_reactions(merged, output_path)
 
     total_min = (time.time() - overall_start) / 60
     typer.echo(
         f"[balance uspto] DONE in {total_min:.1f} min: "
         f"balanced {n_recovered} of {uspto_count} USPTO rows "
-        f"at conf>{confidence_threshold}; "
-        f"dropped {dropped} unbalanced rows; kept {merged.height} balanced total."
+        f"at conf>{confidence_threshold} (kept {merged.height} total — drop happens in next stage)."
+    )
+
+
+@balance_app.command("drop-unbalanced")
+def balance_drop_unbalanced(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Drop rows where `balanced=False`. Reads balanced/, writes filtered/.
+
+    For USPTO this drops the rows SYN-RBL couldn't solve at conf > threshold;
+    for MetaNetX the rows where the curator's is_balanced flag was 'N'.
+    The pre-drop file is preserved at interim/balanced/ for audit trail.
+    """
+    cfg = _load(config, override)
+    input_path = interim_path(cfg, "balanced", "reactions.parquet")
+    output_path = interim_path(cfg, "filtered", "reactions.parquet")
+
+    if not input_path.exists():
+        write_empty_reactions(output_path)
+        typer.echo(f"[balance drop-unbalanced] upstream {input_path} missing; wrote empty parquet.")
+        return
+
+    df = read_reactions(input_path)
+    pre = df.height
+    kept = df.filter(pl.col("balanced"))
+    write_reactions(kept, output_path)
+    typer.echo(
+        f"[balance drop-unbalanced] kept {kept.height} of {pre} rows "
+        f"(dropped {pre - kept.height} where balanced=False)."
     )
 
 
@@ -444,7 +466,7 @@ def balance_validate(
 ) -> None:
     """Universal atom-count validation; populates rdkit_balanced: bool for all reactions."""
     cfg = _load(config, override)
-    input_path = interim_path(cfg, "balanced", "reactions.parquet")
+    input_path = interim_path(cfg, "filtered", "reactions.parquet")
     output_path = interim_path(cfg, "validated", "reactions.parquet")
 
     if not input_path.exists():
