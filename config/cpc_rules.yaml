@@ -1,0 +1,20 @@
+# CPC code → license-coverage classification rules.
+# Codes are matched as PREFIX (any patent with at least one CPC code that
+# starts with one of these strings is a hit). The CPC scheme is hierarchical:
+# "C07D 401/12" starts with "C07D", which is a composition code below.
+
+process_codes:
+  - "C07B"   # general organic process
+  - "C07C"   # acyclic / carbocyclic process
+  - "B01J"   # catalysts / reactor processes
+  - "C12P"   # fermentation / enzymatic processes
+composition_codes:
+  - "C07D"   # heterocyclic compounds
+  - "C07E"
+  - "C07F"
+  - "C07G"
+  - "C07H"
+  - "C07J"
+  - "C07K"
+ambiguous_codes:
+  - "A61K"   # medicinal preparations — composition vs. method-of-use; defer to LLM
