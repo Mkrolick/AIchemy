@@ -25,16 +25,25 @@ solver = ["gurobipy>=11.0"]
 notebooks = ["jupyter", "pandas", "matplotlib"]
 balance = ["synrbl>=1.0.6"]           # optional USPTO atom-balancing (Stage 07)
 thermo = ["equilibrator-api>=0.7.0"]  # optional ΔG'° enrichment (Open Item 03)
+pricing = [
+  "httpx>=0.27",
+  "curl_cffi>=0.7",
+  "polars>=1.0",
+  "pydantic>=2.6",
+  "typer>=0.12",
+  "rdkit>=2024.3",
+]
 
 [project.scripts]
 aichemy = "aichemy.cli:app"
+aichemy-price = "aichemy_pricing.cli:app"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/aichemy"]
+packages = ["src/aichemy", "src/aichemy_pricing"]
 
 [dependency-groups]
 dev = [
@@ -61,7 +70,7 @@ ignore = ["RUF002", "RUF003"]  # Unicode in docstrings / comments (ℝ, −, etc
 "src/aichemy/preprocessing/augment/prices_curated.py" = ["E501"]  # long SMILES strings
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "src/aichemy_pricing/tests"]
 addopts = "-ra --strict-markers -m 'not slow'"
 markers = [
     "slow: long-running tests (e.g. full-network MILP solve) — run with `-m slow`",
@@ -69,7 +78,7 @@ markers = [
 
 [tool.mypy]
 strict = true
-files = ["src/aichemy"]
+files = ["src/aichemy", "src/aichemy_pricing"]
 
 [[tool.mypy.overrides]]
 module = ["rdkit.*", "patito.*", "yaml", "synrbl", "synrbl.*", "pulp", "pulp.*", "py7zr", "equilibrator_api", "equilibrator_api.*", "joblib"]
@@ -103,3 +112,15 @@ disable_error_code = ["type-arg", "attr-defined"]
 module = ["aichemy.preprocessing.io"]
 disallow_subclassing_any = false
 disable_error_code = ["misc", "arg-type"]
+
+# aichemy_pricing tests intentionally pass invalid inputs to validators (lowercase
+# currency, dict-spread of base kwargs, unannotated stub classes); strict mode
+# is for the runtime modules, not the test suite. _capture is a developer
+# one-shot script that forwards argparse strings into curl_cffi's Literal-typed
+# Session(impersonate=...).
+[[tool.mypy.overrides]]
+module = ["aichemy_pricing.tests.*", "aichemy_pricing.tests.data._capture"]
+disallow_untyped_calls = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disable_error_code = ["arg-type", "no-untyped-def", "no-untyped-call", "var-annotated"]
