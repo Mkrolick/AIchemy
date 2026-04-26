@@ -1,26 +1,19 @@
-"""Lock the Browser API + LLM extraction modules as STUBS.
+"""Lock the LLM extraction module as a STUB.
 
-These tests prevent the stubs from accidentally shipping as half-working
-implementations. If you intentionally implement either of these in a
+This test prevents the LLM stub from accidentally shipping as a
+half-working implementation. If you intentionally implement it in a
 future revision, update or remove the test (don't keep a fake-passing
 stub assertion in place).
+
+(BrowserbaseBrowserLookup was a stub in sub-plan F and is now real —
+its tests live in test_browserbase_browser_lookup.py.)
 """
 
 from __future__ import annotations
 
 import pytest
 
-from aichemy_pricing.browserbase.browser_api import BrowserbaseBrowserLookup
 from aichemy_pricing.browserbase.llm_extract import BrowserbaseLLMLookup
-
-
-def test_browser_api_constructor_raises_with_helpful_message() -> None:
-    with pytest.raises(NotImplementedError) as exc_info:
-        BrowserbaseBrowserLookup()
-    msg = str(exc_info.value)
-    # Must point the future-implementer at when to swap the stub for a
-    # real impl — not just say "TODO".
-    assert "Fetch API" in msg or "multi-step" in msg
 
 
 def test_llm_extract_constructor_raises_with_helpful_message() -> None:
