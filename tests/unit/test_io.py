@@ -121,6 +121,7 @@ def test_write_empty_molecules_is_readable(tmp_path: Path) -> None:
         "carbon_count",
         "price_per_gram",
         "source_refs",
+        "is_class_resolved",
     }
 
 
