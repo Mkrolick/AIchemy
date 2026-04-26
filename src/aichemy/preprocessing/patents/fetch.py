@@ -30,6 +30,18 @@ log = logging.getLogger(__name__)
 
 API_KEY_ENV = "USPTO_ODP_API_KEY"
 
+_GRANT_AUTH_ERROR_STATUSES = frozenset({401, 403, 429})
+
+
+class GrantFetchError(Exception):
+    """Raised by _fetch_grant_xml when the server returns an auth/rate-limit error.
+
+    HTTP 401, 403, or 429 from either the file-location lookup or the
+    signed-URL download are unrecoverable without operator action (bad key,
+    insufficient permissions, or quota exhausted), so they propagate up to
+    _fetch_batch which sets fetch_status="error" on the parent record.
+    """
+
 
 @dataclass
 class PatentMetadata:
@@ -118,7 +130,16 @@ def _fetch_batch(
                     )
                     if not file_uri:
                         continue
-                    xml = _fetch_grant_xml(file_uri, api_key)
+                    try:
+                        xml = _fetch_grant_xml(file_uri, api_key)
+                    except GrantFetchError as exc:
+                        log.warning(
+                            "Grant XML auth/rate-limit error for %s: %s",
+                            rec.patent_number,
+                            exc,
+                        )
+                        rec.fetch_status = "error"
+                        continue
                     if xml is None:
                         continue
                     abstract, claims_text = _parse_grant_xml(xml)
@@ -235,8 +256,15 @@ def _fetch_grant_xml(file_uri: str, api_key: str) -> str | None:
             no ``Location`` header — both shapes are handled.
       2. GET <signed-url>  (no auth header)
          -> 200, full grant XML
-    Returns the XML body, or None on any failure (caller treats this as
-    no-abstract/no-claims; metadata still counts as fetched).
+
+    Returns the XML body on success, or None when the grant XML is genuinely
+    absent (no signed URL in response, non-auth non-200 on signed download).
+    Callers should keep fetch_status="ok" in that case — it is data absence,
+    not an API error.
+
+    Raises GrantFetchError for HTTP 401/403/429 from either step — these
+    indicate a bad/expired key, insufficient permissions, or exhausted quota
+    and require operator action; the caller should set fetch_status="error".
     """
     try:
         r = requests.get(
@@ -245,6 +273,10 @@ def _fetch_grant_xml(file_uri: str, api_key: str) -> str | None:
             timeout=30,
             allow_redirects=False,
         )
+        if r.status_code in _GRANT_AUTH_ERROR_STATUSES:
+            raise GrantFetchError(
+                f"file-location lookup returned HTTP {r.status_code}"
+            )
         signed_url = r.headers.get("Location")
         if not signed_url:
             m = re.search(r"https://data\.uspto\.gov/[^\s\"]+", r.text)
@@ -256,10 +288,16 @@ def _fetch_grant_xml(file_uri: str, api_key: str) -> str | None:
                 return None
             signed_url = m.group(0).rstrip(".")
         rr = requests.get(signed_url, timeout=60)
+        if rr.status_code in _GRANT_AUTH_ERROR_STATUSES:
+            raise GrantFetchError(
+                f"signed-URL download returned HTTP {rr.status_code}"
+            )
         if rr.status_code != 200:
             log.warning("Grant XML download returned %s", rr.status_code)
             return None
         return rr.text
+    except GrantFetchError:
+        raise
     except requests.RequestException as exc:
         log.warning("Grant XML fetch failed: %s", exc)
         return None
