@@ -18,6 +18,7 @@ from aichemy.preprocessing.augment.directionality import DirectionalityMode
 from aichemy.preprocessing.balance import validate as balance_validate_module
 from aichemy.preprocessing.io import (
     interim_path,
+    licenses_path,
     processed_path,
     raw_path,
     read_molecules,
@@ -608,6 +609,41 @@ def augment_directionality(
         augmented = df  # nothing to do without direction annotation
     write_reactions(augmented, output_path)
     typer.echo(f"[augment directionality] wrote {augmented.height} rows.")
+
+
+@augment_app.command("licenses")
+def augment_licenses_cmd(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Merge CPC + LLM license classifications onto reactions."""
+    from aichemy.preprocessing.augment.licenses import augment_licenses
+
+    cfg = _load(config, override)
+    reactions = read_reactions(interim_path(cfg, "augmented", "reactions_full.parquet"))
+    cpc = pl.read_parquet(licenses_path(cfg, "cpc_classifications.parquet"))
+    llm_path = licenses_path(cfg, "llm_classifications.parquet")
+    if llm_path.exists():
+        llm = pl.read_parquet(llm_path)
+    else:
+        llm = pl.DataFrame(
+            schema={
+                "patent_number": pl.Utf8,
+                "process_covered": pl.Boolean,
+                "composition_covered": pl.Boolean,
+            }
+        )
+
+    out = augment_licenses(reactions, cpc, llm)
+    out_path = interim_path(cfg, "augmented", "reactions_licensed.parquet")
+    write_reactions(out, out_path)
+
+    n_proc = int(out["process_covered"].sum())
+    n_comp = int(out["composition_covered"].sum())
+    typer.echo(
+        f"[augment licenses] {out.height} reactions "
+        f"({n_proc} process-covered, {n_comp} composition-covered) → {out_path}"
+    )
 
 
 @app.command("export")
