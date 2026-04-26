@@ -8,6 +8,7 @@ captured from the live endpoint to lock the corrected schema in place.
 from __future__ import annotations
 
 import json
+import pathlib
 
 import httpx
 import pytest
@@ -17,12 +18,12 @@ from aichemy_pricing.vendors.fluorochem import FluorochemVendor
 
 
 @pytest.fixture
-def fixture_body(fixture_dir) -> bytes:
+def fixture_body(fixture_dir: pathlib.Path) -> bytes:
     return (fixture_dir / "fluorochem_F765353.json").read_bytes()
 
 
 def _patch_http(monkeypatch: pytest.MonkeyPatch, *, status: int, body: bytes = b"") -> None:
-    def mock_send(self, request, **kw):  # noqa: ARG001
+    def mock_send(self, request, **kw):
         return httpx.Response(status, content=body, request=request)
 
     monkeypatch.setattr(httpx.Client, "send", mock_send)

@@ -15,7 +15,7 @@ from aichemy_pricing.vendors.tocris import TocrisVendor
 
 
 def _patch_http(monkeypatch: pytest.MonkeyPatch, *, status: int, body: bytes = b"") -> None:
-    def mock_send(self, request, **kw):  # noqa: ARG001
+    def mock_send(self, request, **kw):
         return httpx.Response(status, content=body, request=request)
 
     monkeypatch.setattr(httpx.Client, "send", mock_send)
@@ -74,7 +74,7 @@ def test_tocris_returns_none_when_no_price_in_html(monkeypatch) -> None:
 def test_tocris_uses_correct_url(monkeypatch) -> None:
     captured: dict[str, str] = {}
 
-    def mock_send(self, request, **kw):  # noqa: ARG001
+    def mock_send(self, request, **kw):
         captured["url"] = str(request.url)
         return httpx.Response(404, request=request)
 

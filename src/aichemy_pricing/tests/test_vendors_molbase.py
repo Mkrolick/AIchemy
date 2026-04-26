@@ -15,7 +15,7 @@ from aichemy_pricing.vendors.molbase import MolbaseVendor
 
 
 def _patch_http(monkeypatch: pytest.MonkeyPatch, *, status: int, body: bytes = b"") -> None:
-    def mock_send(self, request, **kw):  # noqa: ARG001
+    def mock_send(self, request, **kw):
         return httpx.Response(status, content=body, request=request)
 
     monkeypatch.setattr(httpx.Client, "send", mock_send)
@@ -25,7 +25,7 @@ def test_molbase_uses_correct_url(monkeypatch) -> None:
     """Confirm the vendor builds the corrected URL form, not the report's wrong one."""
     captured: dict[str, str] = {}
 
-    def mock_send(self, request, **kw):  # noqa: ARG001
+    def mock_send(self, request, **kw):
         captured["url"] = str(request.url)
         return httpx.Response(404, request=request)
 
@@ -59,8 +59,7 @@ def test_molbase_extracts_cny_price_chinese_supplier(monkeypatch) -> None:
     """Per CLAIM-18 the majority of Molbase suppliers are Chinese, so CNY (¥)
     must be parsed correctly — many compounds list ONLY in CNY."""
     body = (
-        "<html><body><span class='price'>¥ 88.00</span>"
-        "<span class='pack'>10g</span></body></html>"
+        "<html><body><span class='price'>¥ 88.00</span><span class='pack'>10g</span></body></html>"
     ).encode()
     _patch_http(monkeypatch, status=200, body=body)
     quote = MolbaseVendor().lookup(VendorRef(vendor="molbase", sku="50-78-2"))
