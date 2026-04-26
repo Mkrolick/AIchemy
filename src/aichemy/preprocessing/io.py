@@ -33,6 +33,9 @@ class Reaction(pt.Model):
     delta_g: float | None = None
     balanced: bool
     source: str  # "metanetx" | "uspto"
+    patent_active: bool = False
+    process_covered: bool = False
+    composition_covered: bool = False
 
 
 def resolve_data_dir(config: PreprocessingConfig) -> Path:
@@ -74,6 +77,9 @@ REACTION_SCHEMA = {
     "delta_g": pl.Float64,
     "balanced": pl.Boolean,
     "source": pl.Utf8,
+    "patent_active": pl.Boolean,
+    "process_covered": pl.Boolean,
+    "composition_covered": pl.Boolean,
 }
 
 
