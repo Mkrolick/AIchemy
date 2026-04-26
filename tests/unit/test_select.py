@@ -45,9 +45,7 @@ def test_empty_input_returns_empty() -> None:
 
 
 def test_total_below_target_returns_all() -> None:
-    rows = [
-        _row(f"r{i:03d}", ["A"], ["B"], rdkit_balanced=(i % 2 == 0)) for i in range(50)
-    ]
+    rows = [_row(f"r{i:03d}", ["A"], ["B"], rdkit_balanced=(i % 2 == 0)) for i in range(50)]
     df = _make_df(rows)
     out = select_reactions(df, target_total=100, seed=42, mandatory_column="rdkit_balanced")
     assert out.height == 50
@@ -66,9 +64,7 @@ def test_must_keep_at_or_above_target_truncates() -> None:
 def test_must_keep_all_present() -> None:
     must_keep_ids = {"k0", "k1", "k2", "k3", "k4"}
     rows = [_row(rid, ["A"], ["B"], rdkit_balanced=True) for rid in must_keep_ids]
-    rows += [
-        _row(f"c{i}", [f"X{i}"], [f"Y{i}"], rdkit_balanced=False) for i in range(20)
-    ]
+    rows += [_row(f"c{i}", [f"X{i}"], [f"Y{i}"], rdkit_balanced=False) for i in range(20)]
     df = _make_df(rows)
     out = select_reactions(df, target_total=10, seed=42, mandatory_column="rdkit_balanced")
     assert out.height == 10
@@ -102,9 +98,7 @@ def test_tfidf_downweights_common_mol() -> None:
         _row("cand_rare", ["B"], ["P_rare"], rdkit_balanced=False),
     ]
     # Inflate A's doc-frequency with filler reactions so idf(A) << idf(B).
-    rows += [
-        _row(f"filler{i}", ["A"], [f"Z{i}"], rdkit_balanced=False) for i in range(30)
-    ]
+    rows += [_row(f"filler{i}", ["A"], [f"Z{i}"], rdkit_balanced=False) for i in range(30)]
     df = _make_df(rows)
     # target_total = must_keep (1) + 1 fill = 2 → best single candidate must win.
     out = select_reactions(df, target_total=2, seed=42, mandatory_column="rdkit_balanced")
@@ -117,9 +111,7 @@ def test_seeded_random_fills_score_zero_candidates() -> None:
     rows = [
         _row("anchor", ["A"], ["B"], rdkit_balanced=True),
     ]
-    rows += [
-        _row(f"c{i:03d}", [f"X{i}"], [f"Y{i}"], rdkit_balanced=False) for i in range(20)
-    ]
+    rows += [_row(f"c{i:03d}", [f"X{i}"], [f"Y{i}"], rdkit_balanced=False) for i in range(20)]
     df = _make_df(rows)
     out1 = select_reactions(df, target_total=5, seed=42, mandatory_column="rdkit_balanced")
     out2 = select_reactions(df, target_total=5, seed=42, mandatory_column="rdkit_balanced")
