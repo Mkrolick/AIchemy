@@ -1,0 +1,25 @@
+{
+  "patents": [
+    {
+      "patent_number": "7456123",
+      "patent_date": "2008-11-25",
+      "patent_abstract": "A method for the synthesis of substituted heterocyclic compounds...",
+      "claims": [{"text": "1. A process for preparing a compound of formula I..."}],
+      "cpcs": [
+        {"cpc_group_id": "C07D 401/12"},
+        {"cpc_group_id": "A61K 31/505"}
+      ],
+      "assignees": [{"assignee_organization": "Acme Pharmaceuticals"}],
+      "application": {"filing_date": "2005-03-14"}
+    },
+    {
+      "patent_number": "9999999",
+      "patent_date": null,
+      "patent_abstract": null,
+      "claims": [],
+      "cpcs": [],
+      "assignees": [],
+      "application": {"filing_date": "1985-01-01"}
+    }
+  ]
+}

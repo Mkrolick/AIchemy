@@ -47,6 +47,7 @@ dev = [
     "nbstripout",
     "dvc>=3.0",
     "responses>=0.25",
+    "types-requests>=2.31",
 ]
 
 [tool.ruff]
