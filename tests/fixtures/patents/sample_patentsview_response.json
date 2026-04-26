@@ -1,0 +1,31 @@
+{
+  "count": 1,
+  "patentFileWrapperDataBag": [
+    {
+      "applicationNumberText": "11106297",
+      "applicationMetaData": {
+        "patentNumber": "7456123",
+        "grantDate": "2008-11-25",
+        "filingDate": "2005-04-14",
+        "inventionTitle": "FCC CATALYST",
+        "cpcClassificationBag": [
+          "B01J  29/084",
+          "B01J  35/647",
+          "C10G  11/02"
+        ],
+        "firstApplicantName": "ExxonMobil Research and Engineering Company"
+      },
+      "assignmentBag": [
+        {
+          "assigneeBag": [
+            {"assigneeNameText": "EXXONMOBIL RESEARCH & ENGINEERING CO."}
+          ]
+        }
+      ],
+      "grantDocumentMetaData": {
+        "fileLocationURI": "https://api.uspto.gov/api/v1/datasets/products/files/PTGRXML-SPLT/2008/ipg081125/11106297_07456123.xml"
+      }
+    }
+  ],
+  "requestIdentifier": "fixture-7456123"
+}

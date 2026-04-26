@@ -114,6 +114,48 @@ stages:
     outs:
       - data/interim/augmented/reactions_full.parquet
 
+  fetch_patent_metadata:
+    cmd: uv run aichemy patents fetch --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/patents/fetch.py
+      - data/interim/augmented/reactions_full.parquet
+    outs:
+      - data/interim/patents/patent_metadata.parquet
+
+  classify_licenses_cpc:
+    cmd: uv run aichemy patents classify-cpc --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - configs/cpc_rules.yaml
+      - src/aichemy/preprocessing/patents/cpc.py
+      - data/interim/augmented/reactions_full.parquet
+      - data/interim/patents/patent_metadata.parquet
+    outs:
+      - data/interim/licenses/cpc_classifications.parquet
+
+  classify_licenses_llm:
+    cmd: uv run aichemy patents classify-llm --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/patents/llm_classify.py
+      - src/aichemy/preprocessing/patents/cache.py
+      - data/interim/licenses/cpc_classifications.parquet
+      - data/interim/patents/patent_metadata.parquet
+    outs:
+      - data/interim/licenses/llm_classifications.parquet
+      - data/interim/licenses/llm_cache.jsonl
+
+  augment_licenses:
+    cmd: uv run aichemy augment licenses --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/augment/licenses.py
+      - data/interim/augmented/reactions_full.parquet
+      - data/interim/licenses/cpc_classifications.parquet
+      - data/interim/licenses/llm_classifications.parquet
+    outs:
+      - data/interim/augmented/reactions_licensed.parquet
   select_reactions:
     cmd: uv run aichemy select reactions --config configs/default.yaml
     deps:
@@ -139,7 +181,7 @@ stages:
       - configs/default.yaml
       - src/aichemy/preprocessing/export.py
       - data/interim/augmented/molecules_priced.parquet
-      - data/interim/selected/reactions.parquet
+      - data/interim/augmented/reactions_licensed.parquet
     outs:
       - data/processed/reactions.parquet
       - data/processed/molecules.parquet

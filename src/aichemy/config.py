@@ -41,7 +41,7 @@ class YieldConfig(BaseModel):
 class LicensesConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
-    patentsview_endpoint: str = "https://search.patentsview.org/api/v1/patent"
+    patentsview_endpoint: str = "https://api.uspto.gov/api/v1/patent/applications/search"
     cpc_rules_path: Path = Field(default_factory=lambda: Path("configs/cpc_rules.yaml"))
     cache_path: Path = Field(default_factory=lambda: Path("data/interim/licenses/llm_cache.jsonl"))
     llm_model: str = "claude-haiku-4-5"
