@@ -51,6 +51,23 @@ def test_subconfigs_are_own_models() -> None:
     assert isinstance(PreprocessingConfig().paths, PathsConfig)
 
 
+def test_prices_aichemy_pricing_backend_schema() -> None:
+    """The widened backend Literal must accept 'aichemy_pricing', and the new
+    sub-config must default to the pubchem_substance / SQLite cache paths.
+    Without this assertion, a regression that drops either field surfaces
+    only as a CLI runtime error."""
+    from aichemy.config import AichemyPricingConfig
+
+    cfg = PreprocessingConfig()
+    assert isinstance(cfg.prices.aichemy_pricing, AichemyPricingConfig)
+    assert cfg.prices.aichemy_pricing.catalog_dir == Path("data/raw/pubchem_substance")
+    assert cfg.prices.aichemy_pricing.cache_path == Path(
+        "data/interim/aichemy_pricing_cache.sqlite"
+    )
+    # Literal must accept the new value without raising.
+    PricesConfig(backend="aichemy_pricing")
+
+
 def test_loads_base_yaml(tmp_path: Path) -> None:
     base = _write(
         tmp_path,

@@ -16,6 +16,7 @@ Real price scraping requires both `backend="chained"` AND
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import logging
 import sqlite3
@@ -356,11 +357,34 @@ def make_lookup(config: PreprocessingConfig) -> PriceLookup:
     - backend="stub" → StubPriceLookup
     - backend="chained" → CachedPriceLookup(ChainedPriceLookup(...))
       built from the `chain` list, honoring scraper enablement flags.
+    - backend="aichemy_pricing" → standalone aichemy_pricing package via
+      _InchikeyAdapter (SMILES → InChIKey → resolver → chain → USD/g).
     """
     cfg = config.prices
 
     if cfg.backend == "stub":
         return StubPriceLookup()
+
+    if cfg.backend == "aichemy_pricing":
+        from aichemy_pricing import (
+            LookupByInchikey,
+            PubChemSdfResolver,
+            build_default_chain,
+        )
+
+        catalog_dir = Path(cfg.aichemy_pricing.catalog_dir)
+        cache_path = Path(cfg.aichemy_pricing.cache_path)
+        sdf_files = sorted(list(catalog_dir.glob("*.sdf")) + list(catalog_dir.glob("*.sdf.gz")))
+        if not sdf_files:
+            log.warning(
+                "aichemy_pricing backend selected but no SDFs found under %s; "
+                "falling back to StubPriceLookup",
+                catalog_dir,
+            )
+            return StubPriceLookup()
+        resolver = PubChemSdfResolver.from_files(sdf_files)
+        pricing_chain = build_default_chain(cache_path=cache_path)
+        return _InchikeyAdapter(LookupByInchikey(resolver=resolver, chain=pricing_chain))
 
     lookups: list[PriceLookup] = []
     for name in cfg.chain:
@@ -438,3 +462,93 @@ def augment_prices(
         .map_elements(lambda s: prices.get(s), return_dtype=pl.Float64)
         .alias("price_per_gram"),
     )
+
+
+# ---------- aichemy_pricing adapter -----------------------------------------
+#
+# Bridges the standalone aichemy_pricing package (InChIKey -> PriceQuote with
+# native currency + pack size) onto AIchemy's PriceLookup protocol (SMILES ->
+# USD/g float). Static FX table; refresh quarterly or wire a live FX feed.
+
+_FX_AS_OF: _dt.date = _dt.date(2026, 4, 25)
+_FX_MAX_AGE = _dt.timedelta(days=120)
+
+# USD per 1 unit of the foreign currency. Source: ECB reference rates on
+# _FX_AS_OF. MUST cover every member of `aichemy_pricing.types.Currency` —
+# the integration test asserts coverage via typing.get_args(Currency).
+_FX_TO_USD_AS_OF_2026_04_25: dict[str, float] = {
+    "USD": 1.000,
+    "GBP": 1.330,  # 1 GBP = 1.33 USD
+    "EUR": 1.090,  # 1 EUR = 1.09 USD
+    "CNY": 0.138,  # 1 CNY = 0.138 USD
+    "JPY": 0.0064,  # 1 JPY = 0.0064 USD
+    "SEK": 0.094,  # 1 SEK = 0.094 USD
+}
+
+
+def _check_fx_freshness() -> None:
+    """Emit one warning at module-import when the FX table is older than the
+    threshold. Without this, prices silently compound drift over months —
+    CNY in particular moves 5–10% intra-year. The 30-day cache TTL means a
+    stale rate is reused for every quote captured during the cache window."""
+    age = _dt.date.today() - _FX_AS_OF
+    if age > _FX_MAX_AGE:
+        log.warning(
+            "aichemy_pricing FX table is %d days old (as-of %s, max-age %d "
+            "days). Refresh ECB reference rates and bump _FX_AS_OF, or wire "
+            "a live FX feed.",
+            age.days,
+            _FX_AS_OF.isoformat(),
+            _FX_MAX_AGE.days,
+        )
+
+
+_check_fx_freshness()
+
+
+class _InchikeyAdapter:
+    """Wrap an `aichemy_pricing.LookupByInchikey` so it satisfies AIchemy's
+    PriceLookup protocol (SMILES -> USD/g float).
+
+    Per call:
+      1. SMILES -> InChIKey via RDKit (lazy import; only when this backend
+         is selected).
+      2. Delegate to LookupByInchikey -> PriceQuote | None.
+      3. Convert price_per_gram_native -> USD via static FX table.
+      4. Return float, or None on any miss.
+    """
+
+    def __init__(
+        self,
+        inner: object,  # aichemy_pricing.LookupByInchikey — typed loosely so
+        # this module imports cleanly without the pricing extra.
+        fx_to_usd: dict[str, float] | None = None,
+    ) -> None:
+        self._inner = inner
+        self._fx = fx_to_usd or _FX_TO_USD_AS_OF_2026_04_25
+
+    def lookup(self, smiles: str) -> float | None:
+        from rdkit import Chem  # lazy import (only when this backend is used)
+
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return None
+        try:
+            inchikey = Chem.MolToInchiKey(mol)  # type: ignore[no-untyped-call]
+        except Exception as exc:  # InChI lib raises on radicals / odd valences
+            log.warning("MolToInchiKey raised on %r: %s", smiles, exc)
+            return None
+        if not inchikey:
+            return None
+        quote = self._inner.lookup(inchikey)  # type: ignore[attr-defined]
+        if quote is None:
+            return None
+        rate = self._fx.get(quote.currency)
+        if rate is None:
+            log.warning(
+                "aichemy_pricing returned %s; no FX rate for %s — dropping quote",
+                quote,
+                quote.currency,
+            )
+            return None
+        return float(quote.price_per_gram_native * rate)

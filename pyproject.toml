@@ -83,7 +83,7 @@ strict = true
 files = ["src/aichemy", "src/aichemy_pricing"]
 
 [[tool.mypy.overrides]]
-module = ["rdkit.*", "patito.*", "yaml", "synrbl", "synrbl.*", "pulp", "pulp.*", "py7zr", "equilibrator_api", "equilibrator_api.*", "joblib"]
+module = ["rdkit.*", "patito.*", "yaml", "synrbl", "synrbl.*", "pulp", "pulp.*", "py7zr", "equilibrator_api", "equilibrator_api.*", "joblib", "browserbase", "browserbase.*", "curl_cffi", "curl_cffi.*", "html2text"]
 ignore_missing_imports = true
 follow_imports = "skip"
 

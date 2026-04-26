@@ -43,7 +43,7 @@ def _html_to_markdown(html: str) -> str:
     h.body_width = 0
     h.ignore_images = True
     h.ignore_emphasis = True
-    return h.handle(html)
+    return str(h.handle(html))
 
 
 class BrowserbaseClient:
