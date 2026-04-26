@@ -122,6 +122,7 @@ def ingest_uspto(rsmi_path: Path) -> pl.DataFrame:
             "yield_rate": yield_rate,
             "delta_g": [None] * raw.height,
             "balanced": [False] * raw.height,
+            "rdkit_balanced": [False] * raw.height,
             "source": ["uspto"] * raw.height,
             "ec_class": [None] * raw.height,
         },
@@ -129,6 +130,7 @@ def ingest_uspto(rsmi_path: Path) -> pl.DataFrame:
             "yield_rate": pl.Float64,
             "delta_g": pl.Float64,
             "balanced": pl.Boolean,
+            "rdkit_balanced": pl.Boolean,
             "ec_class": pl.Utf8,
         },
     )
