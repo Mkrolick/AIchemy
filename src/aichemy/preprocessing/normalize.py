@@ -55,16 +55,20 @@ def extract_uspto_molecules(uspto_reactions: pl.DataFrame) -> pl.DataFrame:
     for smi in smiles_set:
         # Strip atom-map labels ([Br:1] -> Br) for canonicalization, but keep
         # the ORIGINAL SMILES as the mol_id so reaction references still resolve.
+        # If SMILES is unparseable by RDKit, still emit a placeholder row so the
+        # mol_id resolves in dedup_reactions — otherwise dedup raises on the
+        # dangling reference. The unreferenced-empty-molecules filter in normalize
+        # will drop these later if no surviving reaction uses them.
+        canon: str | None = smi
+        ikey: str | None = None
+        c: int | None = None
         try:
-            if not is_valid(smi):
-                # Atom-mapped SMILES may still be parseable; skip only on hard fail.
-                continue
-            canon = canonicalize(smi)
-            ikey = inchi_key(smi)
-            c = carbon_count(smi)
+            if is_valid(smi):
+                canon = canonicalize(smi)
+                ikey = inchi_key(smi)
+                c = carbon_count(smi)
         except Exception:
-            log.debug("Skipping unparseable USPTO SMILES: %s", smi[:60])
-            continue
+            log.debug("Unparseable USPTO SMILES kept as placeholder: %s", smi[:60])
         rows.append(
             {
                 "mol_id": smi,  # keep original to match reaction refs
