@@ -691,9 +691,7 @@ def patents_classify_llm(
     cfg = _load(config, override)
 
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise typer.BadParameter(
-            "ANTHROPIC_API_KEY not set; LLM classification cannot proceed."
-        )
+        raise typer.BadParameter("ANTHROPIC_API_KEY not set; LLM classification cannot proceed.")
 
     cpc = pl.read_parquet(licenses_path(cfg, "cpc_classifications.parquet"))
     patents = pl.read_parquet(patents_path(cfg, "patent_metadata.parquet"))

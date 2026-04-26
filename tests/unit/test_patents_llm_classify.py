@@ -35,7 +35,10 @@ def _stub_anthropic_response(
 def test_classify_patent_llm_parses_tool_use():
     client = MagicMock()
     client.messages.create.return_value = _stub_anthropic_response(
-        process=True, composition=False, confidence=0.86, rationale="claim 1 method",
+        process=True,
+        composition=False,
+        confidence=0.86,
+        rationale="claim 1 method",
     )
     out = classify_patent_llm(
         client=client,
@@ -62,7 +65,10 @@ def test_classify_patent_llm_returns_none_on_unexpected_stop_reason():
     out = classify_patent_llm(
         client=client,
         patent_number="X",
-        title="t", abstract="a", claims_text="c", reaction_smiles_examples=[],
+        title="t",
+        abstract="a",
+        claims_text="c",
+        reaction_smiles_examples=[],
         model="claude-haiku-4-5",
     )
     assert out is None
@@ -140,14 +146,22 @@ def test_classify_ambiguous_patents_calls_llm_on_cache_miss(tmp_path: Path):
     reactions = pl.DataFrame({"rxn_id": ["USPTO:B:0"], "reaction_smiles": ["A>>B"]})
     client = MagicMock()
     client.messages.create.return_value = _stub_anthropic_response(
-        process=False, composition=True, confidence=0.7, rationale="composition only",
+        process=False,
+        composition=True,
+        confidence=0.7,
+        rationale="composition only",
     )
     cache_path = tmp_path / "cache.jsonl"
     out_path = tmp_path / "llm.parquet"
     out_df = classify_ambiguous_patents(
-        cpc=cpc, patents=patents, reactions=reactions,
-        cache_path=cache_path, out_path=out_path,
-        client=client, model="claude-haiku-4-5", max_retries=1,
+        cpc=cpc,
+        patents=patents,
+        reactions=reactions,
+        cache_path=cache_path,
+        out_path=out_path,
+        client=client,
+        model="claude-haiku-4-5",
+        max_retries=1,
     )
     assert client.messages.create.call_count == 1
     assert out_df["cache_hit"][0] is False
@@ -173,9 +187,14 @@ def test_classify_ambiguous_patents_skips_inactive(tmp_path: Path):
     client = MagicMock()
     out_path = tmp_path / "llm.parquet"
     out_df = classify_ambiguous_patents(
-        cpc=cpc, patents=patents, reactions=reactions,
-        cache_path=tmp_path / "cache.jsonl", out_path=out_path,
-        client=client, model="claude-haiku-4-5", max_retries=1,
+        cpc=cpc,
+        patents=patents,
+        reactions=reactions,
+        cache_path=tmp_path / "cache.jsonl",
+        out_path=out_path,
+        client=client,
+        model="claude-haiku-4-5",
+        max_retries=1,
     )
     # Inactive patents are not LLM-classified
     assert out_df.height == 0
