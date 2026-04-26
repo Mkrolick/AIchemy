@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
+import polars as pl
 import typer
 
 from aichemy.config import load_config
@@ -37,6 +39,21 @@ _BalanceFilterOpt = typer.Option(
         "Which boolean column gates reactions: 'rdkit_balanced' (default, "
         "strict atom-count) or 'balanced' (looser per-source claim)."
     ),
+)
+_RProcessOpt = typer.Option(
+    "0,0.02,0.04,0.06,0.08",
+    "--r-process",
+    help="Comma-separated decimal fractions for the process royalty axis.",
+)
+_RCompOpt = typer.Option(
+    "0,0.02,0.04,0.06,0.08",
+    "--r-comp",
+    help="Comma-separated decimal fractions for the composition royalty axis.",
+)
+_SweepOutOpt = typer.Option(
+    Path("data/processed/sensitivity"),
+    "--out",
+    help="Output directory.",
 )
 
 
@@ -77,4 +94,78 @@ def solve(
         f"activated={len(solution.activated_reactions)}  "
         f"sold={len(solution.sold_molecules)}  "
         f"→ {solver_cfg.output_path}"
+    )
+
+
+def _run_sweep(
+    reactions: pl.DataFrame,
+    molecules: pl.DataFrame,
+    *,
+    r_process_grid: list[float],
+    r_comp_grid: list[float],
+    out_dir: Path,
+    base_config: SolverConfig,
+) -> pl.DataFrame:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rows: list[dict] = []
+    for rp in r_process_grid:
+        for rc in r_comp_grid:
+            cfg = base_config.model_copy(update={"r_process": rp, "r_comp": rc})
+            sol = build_and_solve(reactions, molecules, cfg)
+            cell_dir = out_dir / "runs" / f"r_process_{rp:.4f}_r_comp_{rc:.4f}"
+            cell_dir.mkdir(parents=True, exist_ok=True)
+            (cell_dir / "solution.json").write_text(json.dumps(sol.to_dict(), indent=2) + "\n")
+            sold_ids = sorted(s["mol_id"] for s in sol.sold_molecules)
+            set_hash = hashlib.sha256(",".join(sold_ids).encode()).hexdigest()[:16]
+            rows.append(
+                {
+                    "r_process": rp,
+                    "r_comp": rc,
+                    "objective_value": (
+                        float(sol.objective_value) if sol.status == "Optimal" else None
+                    ),
+                    "n_active_reactions": len(sol.activated_reactions),
+                    "n_sold_products": len(sol.sold_molecules),
+                    "set_hash": set_hash,
+                    "infeasible": sol.status == "Infeasible",
+                }
+            )
+    summary = pl.DataFrame(rows)
+    summary.write_parquet(out_dir / "summary.parquet")
+    return summary
+
+
+@solver_app.command("sweep")
+def sweep(
+    config: Path = _ConfigOpt,
+    override: list[Path] = _OverrideOpt,
+    r_process: str = _RProcessOpt,
+    r_comp: str = _RCompOpt,
+    out: Path = _SweepOutOpt,
+    backend: str = _BackendOpt,
+    verbose: bool = _VerboseOpt,
+) -> None:
+    """Sweep the (r_process, r_comp) grid; write per-cell solutions + summary parquet."""
+    cfg = load_config(config, override)
+    base_cfg = SolverConfig(
+        backend=backend,  # type: ignore[arg-type]
+        verbose=verbose,
+        output_path=processed_path(cfg, "solution.json"),
+    )
+    reactions = read_reactions(processed_path(cfg, "reactions.parquet"))
+    molecules = read_molecules(processed_path(cfg, "molecules.parquet"))
+
+    rp_grid = [float(x) for x in r_process.split(",")]
+    rc_grid = [float(x) for x in r_comp.split(",")]
+    typer.echo(f"[solve sweep] {len(rp_grid)}x{len(rc_grid)} = {len(rp_grid) * len(rc_grid)} cells")
+    summary = _run_sweep(
+        reactions,
+        molecules,
+        r_process_grid=rp_grid,
+        r_comp_grid=rc_grid,
+        out_dir=out,
+        base_config=base_cfg,
+    )
+    typer.echo(
+        f"[solve sweep] complete; summary → {out / 'summary.parquet'} ({summary.height} rows)"
     )
