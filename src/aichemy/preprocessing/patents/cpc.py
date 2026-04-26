@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 import yaml
@@ -125,7 +126,7 @@ def classify_dataframe(
 
     joined = rxn_df.join(patents, on="patent_number", how="left")
 
-    out_rows: list[dict] = []
+    out_rows: list[dict[str, Any]] = []
     for r in joined.iter_rows(named=True):
         cpc_codes = list(r.get("cpc_codes") or [])
         c = classify_patent(
