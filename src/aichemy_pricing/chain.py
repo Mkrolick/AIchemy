@@ -69,6 +69,11 @@ class CachedPriceLookup:
     `threading.local`. SQLite handles concurrent writers via its file-level
     lock; conflicts retry transparently because we use `isolation_level=None`
     (autocommit). Required for the parallel `augment_prices` dispatcher.
+
+    Cache-miss races: two concurrent lookups for the same (vendor, sku) may
+    both call the inner backend before either writes. INSERT OR REPLACE keeps
+    storage consistent (last-write-wins), but the inner is called twice. For
+    workloads where this matters, add a per-key lock at the dispatcher layer.
     """
 
     name = "cache"
@@ -80,8 +85,11 @@ class CachedPriceLookup:
         self._tls = threading.local()
         # Initialize schema once on the constructing thread; per-thread
         # connections opened lazily in `_conn()`.
-        bootstrap = sqlite3.connect(str(self.db_path), isolation_level=None)
+        bootstrap = sqlite3.connect(str(self.db_path), isolation_level=None, timeout=30.0)
         try:
+            bootstrap.execute("PRAGMA journal_mode=WAL")
+            bootstrap.execute("PRAGMA synchronous=NORMAL")
+            bootstrap.execute("PRAGMA busy_timeout=30000")
             bootstrap.executescript(_SCHEMA)
         finally:
             bootstrap.close()
@@ -89,7 +97,10 @@ class CachedPriceLookup:
     def _conn(self) -> sqlite3.Connection:
         conn = getattr(self._tls, "conn", None)
         if conn is None:
-            conn = sqlite3.connect(str(self.db_path), isolation_level=None)
+            conn = sqlite3.connect(str(self.db_path), isolation_level=None, timeout=30.0)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA busy_timeout=30000")
             self._tls.conn = conn
         return conn
 
