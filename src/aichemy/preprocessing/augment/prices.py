@@ -447,19 +447,35 @@ def register_scraper(vendor_name: str, scraper_cls: type) -> None:
 def augment_prices(
     molecules: pl.DataFrame,
     lookup: PriceLookup,
+    max_workers: int = 1,
 ) -> pl.DataFrame:
     """Populate `price_per_gram` on a molecules DataFrame via the lookup.
 
-    Iterates unique SMILES to avoid repeat lookups (the cache decorator
-    would absorb the cost anyway, but this is cheaper still). Missing
-    prices remain None — the downstream MILP can still run with partial
-    pricing.
+    Iterates UNIQUE SMILES (so the cost scales with chemical diversity, not
+    row count). With `max_workers=1` the dispatch is a serial loop — identical
+    to prior behavior. With `max_workers>1` a `ThreadPoolExecutor` parallelizes
+    the per-SMILES `lookup.lookup(...)` calls; required for 100K-compound runs
+    where L3 Browserbase calls dominate wall-clock (~5–10s each). The lookup
+    must be thread-safe at this scale (see `aichemy_pricing.chain.CachedPriceLookup`
+    + `aichemy_pricing.ratelimit.TokenBucket`).
+
+    Missing prices remain None — the downstream MILP can still run with
+    partial pricing.
     """
     if "canonical_smiles" not in molecules.columns:
         raise ValueError("augment_prices requires a 'canonical_smiles' column")
+    if max_workers < 1:
+        raise ValueError("max_workers must be >= 1")
 
     unique_smiles: list[str] = molecules.get_column("canonical_smiles").unique().to_list()
-    prices: dict[str, float | None] = {s: lookup.lookup(s) for s in unique_smiles}
+
+    if max_workers == 1:
+        prices: dict[str, float | None] = {s: lookup.lookup(s) for s in unique_smiles}
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            prices = dict(zip(unique_smiles, ex.map(lookup.lookup, unique_smiles), strict=True))
 
     return molecules.with_columns(
         pl.col("canonical_smiles")

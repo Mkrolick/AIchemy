@@ -530,11 +530,17 @@ def augment_prices(
 
     lookup = prices_module.make_lookup(cfg)
     molecules = read_molecules(input_path)
-    priced = prices_module.augment_prices(molecules, lookup)
+    # Only the aichemy_pricing backend is thread-safe (Task 3 fixed per-thread
+    # sqlite conns there). The in-house chained backend still shares one
+    # CachedPriceLookup connection across threads, so force serial dispatch.
+    max_workers = (
+        cfg.prices.aichemy_pricing.max_workers if cfg.prices.backend == "aichemy_pricing" else 1
+    )
+    priced = prices_module.augment_prices(molecules, lookup, max_workers=max_workers)
     write_molecules(priced, output_path)
     typer.echo(
         f"[augment prices] wrote {priced.height} rows to {output_path} "
-        f"(backend={cfg.prices.backend})."
+        f"(backend={cfg.prices.backend}, max_workers={max_workers})."
     )
 
 
