@@ -3,6 +3,7 @@
 Offline only — uses captured Fluorochem fixture bytes via httpx.Client.send
 monkeypatching. Skipped at collection time when the pricing extra is absent.
 """
+
 from __future__ import annotations
 
 import typing
@@ -33,20 +34,16 @@ def test_fx_table_covers_every_currency_literal() -> None:
     )
 
 
-def test_aichemy_pricing_chain_round_trips_fluorochem_fixture(
-    tmp_path, monkeypatch
-) -> None:
+def test_aichemy_pricing_chain_round_trips_fluorochem_fixture(tmp_path, monkeypatch) -> None:
     """Build the default chain, intercept the fluorochem URL with the
     captured fixture bytes, and confirm a round-trip PriceQuote with the
     expected currency + price."""
     from aichemy_pricing import build_default_chain
     from aichemy_pricing.types import VendorRef
 
-    fixture = Path(
-        "src/aichemy_pricing/tests/data/fluorochem_F765353.json"
-    ).read_bytes()
+    fixture = Path("src/aichemy_pricing/tests/data/fluorochem_F765353.json").read_bytes()
 
-    def mock_send(self, request, **kw):  # noqa: ARG001
+    def mock_send(self, request, **kw):
         if "fluorochem" in str(request.url):
             return httpx.Response(200, content=fixture, request=request)
         return httpx.Response(404, request=request)
