@@ -60,9 +60,7 @@ def test_prices_aichemy_pricing_backend_schema() -> None:
 
     cfg = PreprocessingConfig()
     assert isinstance(cfg.prices.aichemy_pricing, AichemyPricingConfig)
-    assert cfg.prices.aichemy_pricing.catalog_dir == Path(
-        "data/raw/pubchem_substance"
-    )
+    assert cfg.prices.aichemy_pricing.catalog_dir == Path("data/raw/pubchem_substance")
     assert cfg.prices.aichemy_pricing.cache_path == Path(
         "data/interim/aichemy_pricing_cache.sqlite"
     )
