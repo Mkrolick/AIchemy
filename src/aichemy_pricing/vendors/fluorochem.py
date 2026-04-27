@@ -62,12 +62,19 @@ class FluorochemVendor:
             return None
         size = float(pack["Size"])
         unit = str(pack["Size Unit"])
+        try:
+            pack_size_g = pack_size_to_grams(size, unit)
+        except KeyError:
+            # Liquid SKUs report volume units ("ml", "l") that don't convert
+            # to grams without density data. Skip rather than crash — the
+            # InChIKey-level pricing contract is mass-based.
+            return None
         return PriceQuote(
             vendor=self.name,
             sku=pack_key,
             price=float(base),
             currency="GBP",
-            pack_size_g=pack_size_to_grams(size, unit),
+            pack_size_g=pack_size_g,
             fetched_at=datetime.now(UTC),
             raw=pack,
         )
