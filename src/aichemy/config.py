@@ -110,20 +110,51 @@ class ScraperConfig(BaseModel):
 class AichemyPricingConfig(BaseModel):
     """Backend-specific config for the standalone `aichemy_pricing` package.
 
-    Path fields point at the offline catalog (PubChem SDF dir + a SQLite cache
-    location). `allowed_sources` filters the in-memory InChIKey index to a
-    vendor allowlist — REQUIRED for full-scale runs (491M SIDs OOM otherwise;
-    see `aichemy_pricing.resolvers.pubchem_sdf` docstring). `max_workers`
-    controls the `augment_prices` thread pool size (1 = today's serial
-    behavior; 100 ~ master-plan target wall-clock for 100K compounds).
+    The InChIKey -> vendor SKU resolver is `PubChemCompoundResolver`, which
+    JOINs three PubChem sources:
+      * Substance SDFs in `substance_dir` -> SID -> (vendor, SKU, URL)
+      * `sid_map_path` (SID-Map.gz)       -> SID -> CID
+      * Compound SDFs in `compound_dir`   -> CID -> InChIKey
+    The fully-built index is persisted to `index_cache` (parquet) so
+    subsequent runs deserialize in seconds instead of rebuilding for ~30-60
+    min. `allowed_sources` filters Substance records by DSN (the literal
+    string in `PUBCHEM_EXT_DATASOURCE_NAME`; usually a numeric source ID
+    like "959" for MedChemExpress, but a few legacy depositors use a string
+    DSN like "Sigma-Aldrich") — REQUIRED at full-corpus scale to bound
+    memory.
+
+    `max_workers` controls the `augment_prices` thread pool size (1 = serial
+    fallback; 100 ~ master-plan target wall-clock for 100K compounds; only
+    applied when `backend == "aichemy_pricing"`).
+
+    `enamine_bb_dir`, when set, layers the narrow-but-exact
+    `EnamineSdfResolver` ahead of the broad PubChem JOIN via
+    `ChainedVendorResolver`.
+
+    `catalog_dir` is a deprecated alias for `substance_dir` — kept so old
+    YAMLs still load; if both are set, `substance_dir` wins.
     """
 
     model_config = {"extra": "forbid"}
 
-    catalog_dir: Path = Field(default_factory=lambda: Path("data/raw/pubchem_substance"))
+    # New (canonical) layout for the 3-way JOIN.
+    compound_dir: Path = Field(default_factory=lambda: Path("data/raw/pubchem_compound"))
+    substance_dir: Path = Field(default_factory=lambda: Path("data/raw/pubchem_substance"))
+    sid_map_path: Path = Field(default_factory=lambda: Path("data/raw/pubchem_sid_map/SID-Map.gz"))
+    index_cache: Path = Field(
+        default_factory=lambda: Path("data/interim/aichemy_pricing_index.parquet")
+    )
+    enamine_bb_dir: Path | None = None
+
+    # Per-vendor SQLite quote cache (separate from `index_cache`).
     cache_path: Path = Field(
         default_factory=lambda: Path("data/interim/aichemy_pricing_cache.sqlite")
     )
+
+    # Legacy alias for `substance_dir`. Only used if `substance_dir` is left
+    # at its default and `catalog_dir` is explicitly set.
+    catalog_dir: Path = Field(default_factory=lambda: Path("data/raw/pubchem_substance"))
+
     allowed_sources: list[str] | None = None
     max_workers: int = Field(default=1, ge=1)
 
