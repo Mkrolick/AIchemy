@@ -284,18 +284,36 @@ def _build_price_lookup(
 ) -> dict[str, tuple[float, float]]:
     """Build mol_id → (buy_price, sell_price) map.
 
-    Simple heuristic: uses `price_per_gram` for both buy and sell when
-    present; falls back to configured defaults otherwise.
+    Priced molecules use ``price_per_gram`` for both buy and sell. Unpriced
+    molecules get a conservative pair derived from the empirical price
+    distribution: max(known) for buy, min(known) for sell. This prevents
+    the solver from "discovering profit" on molecules whose true price is
+    unknown — any pure-unpriced trade has objective ≤ 0. Falls back to the
+    configured ``default_buy_price`` / ``default_sell_price`` only when no
+    priced molecule exists at all.
     """
-    price_lookup: dict[str, tuple[float, float]] = {}
     by_id = {row["mol_id"]: row for row in molecules.iter_rows(named=True)}
+
+    known_prices = [
+        float(by_id[m]["price_per_gram"])
+        for m in referenced
+        if by_id.get(m) and by_id[m].get("price_per_gram") is not None
+    ]
+    if known_prices:
+        unpriced_buy = max(known_prices)
+        unpriced_sell = min(known_prices)
+    else:
+        unpriced_buy = config.default_buy_price
+        unpriced_sell = config.default_sell_price
+
+    price_lookup: dict[str, tuple[float, float]] = {}
     for mol_id in referenced:
         row = by_id.get(mol_id)
         if row and row.get("price_per_gram") is not None:
             p = float(row["price_per_gram"])
             price_lookup[mol_id] = (p, p)
         else:
-            price_lookup[mol_id] = (config.default_buy_price, config.default_sell_price)
+            price_lookup[mol_id] = (unpriced_buy, unpriced_sell)
     return price_lookup
 
 
