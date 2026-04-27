@@ -32,6 +32,31 @@ API_KEY_ENV = "USPTO_ODP_API_KEY"
 
 _GRANT_AUTH_ERROR_STATUSES = frozenset({401, 403, 429})
 
+# ODP's `applicationMetaData.patentNumber` field stores patents in a bare,
+# unpadded form: regular grants as "8200000", reissues as "RE41149", etc.
+# Lowe's USPTO dump uses the document-id form: "US08200000B2", "USRE041149E1".
+# These two regexes peel the latter into the former.
+_PATENT_NUM_DOC_ID_RE = re.compile(r"^US(?P<prefix>[A-Z]{0,2})0*(?P<digits>\d+)[A-Z]?\d?$")
+
+
+def _normalize_patent_number(pn: str) -> str | None:
+    """Strip Lowe document-id formatting to ODP's stored patentNumber form.
+
+    Examples:
+        US08200000B2  -> 8200000     (regular grant, kind code B2)
+        US03930836    -> 3930836     (vintage grant, no kind code)
+        USRE041149E1  -> RE41149     (reissue, kind code E1)
+        USD0123456S1  -> D123456     (design patent)
+
+    Returns None when the input doesn't match the expected document-id shape
+    (caller can fall back to using the raw input — ODP will then return 404
+    and the record flows through as fetch_status='not_found').
+    """
+    m = _PATENT_NUM_DOC_ID_RE.match(pn.strip().upper())
+    if not m:
+        return None
+    return f"{m.group('prefix')}{m.group('digits')}"
+
 
 class GrantFetchError(Exception):
     """Raised by _fetch_grant_xml when the server returns an auth/rate-limit error.
@@ -114,14 +139,24 @@ def _fetch_batch(
     max_retries: int,
     backoff_seconds: float,
 ) -> list[PatentMetadata]:
-    q = "applicationMetaData.patentNumber:(" + " OR ".join(batch) + ")"
+    # ODP wants the bare patentNumber form ("8200000"), not Lowe's
+    # document-id form ("US08200000B2"). Normalize for the query, but match
+    # responses back to the original input so downstream joins on
+    # patent_number (derived from rxn_id) keep working.
+    norm_to_orig: dict[str, str] = {}
+    for orig in batch:
+        norm = _normalize_patent_number(orig)
+        if norm is not None:
+            norm_to_orig.setdefault(norm, orig)
+    query_terms = list(norm_to_orig.keys()) or list(batch)
+    q = "applicationMetaData.patentNumber:(" + " OR ".join(query_terms) + ")"
     headers = {"X-API-Key": api_key, "Accept": "application/json"}
     params = {"q": q, "limit": str(len(batch))}
     for attempt in range(max_retries):
         try:
             r = requests.get(endpoint, params=params, headers=headers, timeout=30)
             if r.status_code == 200:
-                pairs = _parse_response(r.json(), batch)
+                pairs = _parse_response(r.json(), batch, norm_to_orig)
                 for rec, raw in pairs:
                     if rec.fetch_status != "ok":
                         continue
@@ -162,7 +197,9 @@ def _fetch_batch(
 
 
 def _parse_response(
-    body: dict[str, Any], batch: list[str]
+    body: dict[str, Any],
+    batch: list[str],
+    norm_to_orig: dict[str, str] | None = None,
 ) -> list[tuple[PatentMetadata, dict[str, Any]]]:
     """Map a USPTO ODP search response to (PatentMetadata, raw_record) pairs.
 
@@ -197,6 +234,7 @@ def _parse_response(
     _fetch_grant_xml / _parse_grant_xml. PatentsView v1 returned them inline;
     ODP does not.
     """
+    norm_to_orig = norm_to_orig or {}
     by_id: dict[str, tuple[PatentMetadata, dict[str, Any]]] = {}
     for record in body.get("patentFileWrapperDataBag") or []:
         meta = record.get("applicationMetaData") or {}
@@ -204,6 +242,9 @@ def _parse_response(
         if not pn:
             continue
         pn = str(pn)
+        # ODP returns the normalized form. Map back to the caller's input
+        # form so the result joins to patent_number derived from rxn_id.
+        out_pn = norm_to_orig.get(pn, pn)
 
         cpc_raw = meta.get("cpcClassificationBag") or []
         cpc_codes = [re.sub(r"\s+", " ", c).strip() for c in cpc_raw if c]
@@ -220,9 +261,9 @@ def _parse_response(
         if assignee is None:
             assignee = meta.get("firstApplicantName")
 
-        by_id[pn] = (
+        by_id[out_pn] = (
             PatentMetadata(
-                patent_number=pn,
+                patent_number=out_pn,
                 filing_date=meta.get("filingDate"),
                 grant_date=meta.get("grantDate"),
                 abstract=None,

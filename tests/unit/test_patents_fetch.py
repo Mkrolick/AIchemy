@@ -7,6 +7,7 @@ import responses
 
 from aichemy.preprocessing.patents.fetch import (
     PatentMetadata,
+    _normalize_patent_number,
     fetch_patents,
     write_metadata_parquet,
 )
@@ -101,6 +102,55 @@ def test_fetch_grant_xml_auth_error_sets_error_status():
     by_id = {p.patent_number: p for p in out}
     assert by_id["7456123"].fetch_status == "error"
     assert by_id["7456123"].abstract is None
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("US08200000B2", "8200000"),
+        ("US07767665B2", "7767665"),
+        ("US03930836", "3930836"),
+        ("US05514680", "5514680"),
+        ("USRE041149E1", "RE41149"),
+        ("USD0123456S1", "D123456"),
+        ("us08200000b2", "8200000"),
+        ("  US08200000B2  ", "8200000"),
+    ],
+)
+def test_normalize_patent_number_strips_to_odp_form(raw, expected):
+    assert _normalize_patent_number(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["", "garbage", "EP08200000", "1234567"])
+def test_normalize_patent_number_returns_none_on_unknown_shape(raw):
+    assert _normalize_patent_number(raw) is None
+
+
+@responses.activate
+def test_fetch_patents_handles_lowe_document_id_format():
+    """Lowe document-id inputs ('US07456123B2') get normalized for the ODP
+    query but the result keeps the input form so downstream joins work."""
+    responses.add(
+        responses.GET,
+        ENDPOINT,
+        json=json.loads(FIXTURE.read_text()),
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        GRANT_FILE_URI,
+        body=f'"Use redirect URL to download: {SIGNED_URL}. IMPORTANT..."',
+        status=200,
+    )
+    responses.add(responses.GET, SIGNED_URL, body=SAMPLE_GRANT_XML, status=200)
+
+    out = fetch_patents(["US07456123B2"], endpoint=ENDPOINT, max_retries=1)
+    assert len(out) == 1
+    assert out[0].patent_number == "US07456123B2"
+    assert out[0].fetch_status == "ok"
+    sent_q = responses.calls[0].request.url
+    assert "7456123" in sent_q
+    assert "US07456123B2" not in sent_q
 
 
 def test_patent_metadata_dataclass_shape():
