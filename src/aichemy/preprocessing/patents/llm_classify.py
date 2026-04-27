@@ -161,6 +161,8 @@ def classify_ambiguous_patents(
         .to_list()
     )
 
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.touch(exist_ok=True)
     cache = load_cache(cache_path)
     rxn_smiles_by_patent = _smiles_index(cpc, reactions)
     patent_meta = {r["patent_number"]: r for r in patents.iter_rows(named=True)}
