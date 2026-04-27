@@ -364,10 +364,10 @@ def test_make_lookup_aichemy_pricing_passes_allowed_sources(
     monkeypatch, tmp_path, config_value, expected_kwarg
 ) -> None:
     """make_lookup must thread cfg.aichemy_pricing.allowed_sources into
-    PubChemSdfResolver.from_files() preserving three distinct states:
+    PubChemCompoundResolver.from_files() preserving three distinct states:
     None (no filter), [] (filter to nothing), and a populated list (filter
-    to those sources). Truthiness collapsing [] -> None is the exact OOM
-    bug Task 4 exists to prevent."""
+    to those sources). Truthiness collapsing [] -> None is the OOM bug Task 4
+    exists to prevent."""
     from aichemy.config import (
         AichemyPricingConfig,
         PreprocessingConfig,
@@ -375,24 +375,39 @@ def test_make_lookup_aichemy_pricing_passes_allowed_sources(
     )
     from aichemy.preprocessing.augment import prices as prices_mod
 
-    # Stage one fake SDF so the empty-catalog fallback doesn't short-circuit.
-    sdf_dir = tmp_path / "pubchem"
-    sdf_dir.mkdir()
-    (sdf_dir / "stub.sdf").write_text("$$$$\n")  # empty record terminator only
+    # Stage all three required PubChem inputs so the missing-input fallback
+    # doesn't short-circuit.
+    compound_dir = tmp_path / "compound"
+    compound_dir.mkdir()
+    (compound_dir / "stub.sdf").write_text("$$$$\n")
+    substance_dir = tmp_path / "substance"
+    substance_dir.mkdir()
+    (substance_dir / "stub.sdf").write_text("$$$$\n")
+    sid_map_path = tmp_path / "sid_map.tsv"
+    sid_map_path.write_text("")
     cache_path = tmp_path / "c.sqlite"
+    index_cache = tmp_path / "index.parquet"  # does not exist yet -> triggers from_files
 
     captured: dict[str, object] = {}
 
-    def fake_from_files(paths, allowed_sources=None):
-        captured["paths"] = list(paths)
+    def fake_from_files(
+        compound_sdf_paths,
+        substance_sdf_paths,
+        sid_map_path,
+        allowed_sources=None,
+        index_cache=None,
+    ):
+        captured["compound_sdf_paths"] = list(compound_sdf_paths)
+        captured["substance_sdf_paths"] = list(substance_sdf_paths)
+        captured["sid_map_path"] = sid_map_path
         captured["allowed_sources"] = allowed_sources
-        # return a resolver that resolves nothing
-        from aichemy_pricing.resolvers.pubchem_sdf import PubChemSdfResolver
+        captured["index_cache"] = index_cache
+        from aichemy_pricing.resolvers.pubchem_compound import PubChemCompoundResolver
 
-        return PubChemSdfResolver()
+        return PubChemCompoundResolver()
 
     monkeypatch.setattr(
-        "aichemy_pricing.resolvers.pubchem_sdf.PubChemSdfResolver.from_files",
+        "aichemy_pricing.resolvers.pubchem_compound.PubChemCompoundResolver.from_files",
         fake_from_files,
     )
 
@@ -400,7 +415,10 @@ def test_make_lookup_aichemy_pricing_passes_allowed_sources(
         prices=PricesConfig(
             backend="aichemy_pricing",
             aichemy_pricing=AichemyPricingConfig(
-                catalog_dir=sdf_dir,
+                compound_dir=compound_dir,
+                substance_dir=substance_dir,
+                sid_map_path=sid_map_path,
+                index_cache=index_cache,
                 cache_path=cache_path,
                 allowed_sources=config_value,
                 max_workers=4,
@@ -413,6 +431,55 @@ def test_make_lookup_aichemy_pricing_passes_allowed_sources(
         assert captured["allowed_sources"] is None
     else:
         assert captured["allowed_sources"] == expected_kwarg
+
+
+def test_make_lookup_aichemy_pricing_uses_index_cache_when_present(monkeypatch, tmp_path) -> None:
+    """If `index_cache` parquet exists, make_lookup must `from_cache` it and
+    skip the 30-60 min build step entirely."""
+    from aichemy.config import AichemyPricingConfig, PreprocessingConfig, PricesConfig
+    from aichemy.preprocessing.augment import prices as prices_mod
+    from aichemy_pricing.resolvers.pubchem_compound import PubChemCompoundResolver
+
+    # Materialize a real cache by persisting an empty index.
+    cache_path = tmp_path / "c.sqlite"
+    index_cache = tmp_path / "index.parquet"
+    PubChemCompoundResolver()._persist(index_cache)
+    assert index_cache.exists()
+
+    called = {"from_cache": False, "from_files": False}
+
+    def fake_from_cache(parquet_path):
+        called["from_cache"] = True
+        return PubChemCompoundResolver()
+
+    def fake_from_files(*args, **kwargs):
+        called["from_files"] = True
+        return PubChemCompoundResolver()
+
+    monkeypatch.setattr(
+        "aichemy_pricing.resolvers.pubchem_compound.PubChemCompoundResolver.from_cache",
+        fake_from_cache,
+    )
+    monkeypatch.setattr(
+        "aichemy_pricing.resolvers.pubchem_compound.PubChemCompoundResolver.from_files",
+        fake_from_files,
+    )
+
+    cfg = PreprocessingConfig(
+        prices=PricesConfig(
+            backend="aichemy_pricing",
+            aichemy_pricing=AichemyPricingConfig(
+                compound_dir=tmp_path,  # contents irrelevant — cache hit short-circuits
+                substance_dir=tmp_path,
+                sid_map_path=tmp_path / "no.tsv",
+                index_cache=index_cache,
+                cache_path=cache_path,
+            ),
+        ),
+    )
+    prices_mod.make_lookup(cfg)
+    assert called["from_cache"] is True
+    assert called["from_files"] is False
 
 
 def test_augment_prices_serial_default_unchanged() -> None:

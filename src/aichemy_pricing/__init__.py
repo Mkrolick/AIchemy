@@ -42,7 +42,9 @@ from aichemy_pricing.http import make_cf_client, make_plain_client
 from aichemy_pricing.lookup_by_inchikey import LookupByInchikey
 from aichemy_pricing.protocol import PriceLookup, VendorResolver
 from aichemy_pricing.ratelimit import TokenBucket
+from aichemy_pricing.resolvers.chained import ChainedVendorResolver
 from aichemy_pricing.resolvers.enamine_sdf import EnamineSdfResolver
+from aichemy_pricing.resolvers.pubchem_compound import PubChemCompoundResolver
 from aichemy_pricing.resolvers.pubchem_sdf import PubChemSdfResolver
 from aichemy_pricing.resolvers.zinc_tranches import ZincTrancheResolver
 from aichemy_pricing.types import Currency, PriceQuote, ResolverHit, VendorRef
@@ -57,6 +59,7 @@ __all__ = [
     "BrowserbaseFetchLookup",
     "CachedPriceLookup",
     "ChainedPriceLookup",
+    "ChainedVendorResolver",
     "Currency",
     "EnamineSdfResolver",
     "FluorochemVendor",
@@ -65,6 +68,7 @@ __all__ = [
     "MolbaseVendor",
     "PriceLookup",
     "PriceQuote",
+    "PubChemCompoundResolver",
     "PubChemSdfResolver",
     "ResolverHit",
     "TocrisVendor",

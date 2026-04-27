@@ -367,26 +367,83 @@ def make_lookup(config: PreprocessingConfig) -> PriceLookup:
 
     if cfg.backend == "aichemy_pricing":
         from aichemy_pricing import (
+            ChainedVendorResolver,
+            EnamineSdfResolver,
             LookupByInchikey,
-            PubChemSdfResolver,
+            PubChemCompoundResolver,
             build_default_chain,
         )
 
-        catalog_dir = Path(cfg.aichemy_pricing.catalog_dir)
-        cache_path = Path(cfg.aichemy_pricing.cache_path)
-        sdf_files = sorted(list(catalog_dir.glob("*.sdf")) + list(catalog_dir.glob("*.sdf.gz")))
-        if not sdf_files:
-            log.warning(
-                "aichemy_pricing backend selected but no SDFs found under %s; "
-                "falling back to StubPriceLookup",
-                catalog_dir,
+        aip = cfg.aichemy_pricing
+        cache_path = Path(aip.cache_path)
+        index_cache = Path(aip.index_cache)
+        compound_dir = Path(aip.compound_dir)
+        substance_dir = Path(aip.substance_dir)
+        sid_map_path = Path(aip.sid_map_path)
+
+        # Prefer the persisted parquet index — full build is 30-60 min;
+        # deserialize is ~5 sec.
+        pubchem_resolver: PubChemCompoundResolver | None = None
+        if index_cache.exists():
+            log.info("aichemy_pricing: loading PubChem index from cache %s", index_cache)
+            pubchem_resolver = PubChemCompoundResolver.from_cache(index_cache)
+        else:
+            compound_sdfs = sorted(
+                list(compound_dir.glob("*.sdf")) + list(compound_dir.glob("*.sdf.gz"))
             )
-            return StubPriceLookup()
-        allowed = cfg.aichemy_pricing.allowed_sources
-        resolver = PubChemSdfResolver.from_files(
-            sdf_files,
-            allowed_sources=set(allowed) if allowed is not None else None,
-        )
+            substance_sdfs = sorted(
+                list(substance_dir.glob("*.sdf")) + list(substance_dir.glob("*.sdf.gz"))
+            )
+            if not compound_sdfs or not substance_sdfs or not sid_map_path.exists():
+                log.warning(
+                    "aichemy_pricing backend selected but PubChem inputs missing "
+                    "(compound_dir=%s sdf_count=%d, substance_dir=%s sdf_count=%d, "
+                    "sid_map=%s exists=%s); falling back to StubPriceLookup",
+                    compound_dir,
+                    len(compound_sdfs),
+                    substance_dir,
+                    len(substance_sdfs),
+                    sid_map_path,
+                    sid_map_path.exists(),
+                )
+                return StubPriceLookup()
+            allowed = aip.allowed_sources
+            log.info(
+                "aichemy_pricing: building PubChem index (3-way JOIN; ~30-60 min); "
+                "result will be cached to %s",
+                index_cache,
+            )
+            pubchem_resolver = PubChemCompoundResolver.from_files(
+                compound_sdf_paths=compound_sdfs,
+                substance_sdf_paths=substance_sdfs,
+                sid_map_path=sid_map_path,
+                allowed_sources=set(allowed) if allowed is not None else None,
+                index_cache=index_cache,
+            )
+
+        # Optional Enamine-direct resolver in front of the PubChem JOIN.
+        if aip.enamine_bb_dir is not None:
+            enamine_dir = Path(aip.enamine_bb_dir)
+            enamine_sdfs = sorted(
+                list(enamine_dir.glob("*.sdf")) + list(enamine_dir.glob("*.sdf.gz"))
+            )
+            if enamine_sdfs:
+                log.info("aichemy_pricing: layering EnamineSdfResolver from %s", enamine_dir)
+                resolver = ChainedVendorResolver(
+                    members=[
+                        EnamineSdfResolver.from_files(enamine_sdfs),
+                        pubchem_resolver,
+                    ]
+                )
+            else:
+                log.warning(
+                    "enamine_bb_dir=%s set but no SDFs found; using PubChem only",
+                    enamine_dir,
+                )
+                resolver = pubchem_resolver
+        else:
+            resolver = pubchem_resolver
+
         pricing_chain = build_default_chain(cache_path=cache_path)
         return _InchikeyAdapter(LookupByInchikey(resolver=resolver, chain=pricing_chain))
 

@@ -143,12 +143,14 @@ def test_invalid_key_raises(tmp_path: Path) -> None:
 
 def test_default_yaml_parses() -> None:
     """configs/default.yaml should load and match the Pydantic defaults except
-    for the explicit `aichemy_pricing` overrides (curated vendor allowlist +
-    max_workers=100) baked in for full-corpus production runs."""
+    for the explicit overrides we ship: backend=aichemy_pricing (new resolver
+    via PubChem Substance + SID-Map + Compound JOIN), the curated DSN
+    allowlist, and max_workers=100 for the parallel dispatcher."""
     repo_root = Path(__file__).resolve().parents[2]
     default_path = repo_root / "configs" / "default.yaml"
     cfg = load_config(default_path)
     expected = PreprocessingConfig()
+    expected.prices.backend = "aichemy_pricing"
     expected.prices.aichemy_pricing.allowed_sources = [
         "822",  # Enamine
         "959",  # MedChemExpress
