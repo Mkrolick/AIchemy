@@ -32,9 +32,17 @@ def _write_compound_sdf(path: Path, records: list[dict[str, str]]) -> None:
 
 
 def _write_sid_map(path: Path, rows: list[tuple[int, int | None]]) -> None:
+    """SID-Map's real format is 4 columns
+    (SID<TAB>SourceName<TAB>SourceRegID<TAB>CID); CID column is *omitted*
+    entirely when there's no Compound association. The test fixtures use
+    placeholder source name + reg ID since the resolver only consumes
+    columns 0 and 3 (SID and CID)."""
     lines = []
     for sid, cid in rows:
-        lines.append(f"{sid}\t{cid if cid is not None else ''}")
+        if cid is None:
+            lines.append(f"{sid}\tFakeSource\tFAKE-{sid:06d}")
+        else:
+            lines.append(f"{sid}\tFakeSource\tFAKE-{sid:06d}\t{cid}")
     path.write_text("\n".join(lines) + "\n")
 
 
