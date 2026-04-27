@@ -368,10 +368,10 @@ def make_lookup(config: PreprocessingConfig) -> PriceLookup:
     if cfg.backend == "aichemy_pricing":
         from aichemy_pricing import (
             ChainedVendorResolver,
+            DirectDispatchInchikeyLookup,
             EnamineSdfResolver,
-            LookupByInchikey,
             PubChemCompoundResolver,
-            build_default_chain,
+            build_default_dispatch,
         )
 
         aip = cfg.aichemy_pricing
@@ -444,8 +444,13 @@ def make_lookup(config: PreprocessingConfig) -> PriceLookup:
         else:
             resolver = pubchem_resolver
 
-        pricing_chain = build_default_chain(cache_path=cache_path)
-        return _InchikeyAdapter(LookupByInchikey(resolver=resolver, chain=pricing_chain))
+        # Direct DSN -> backend dispatch: each ResolverHit calls exactly one
+        # backend (the one its DSN actually maps to) instead of fanning out
+        # across the whole chain. This drops per-SKU latency from O(chain
+        # length) to O(1) and avoids wasteful Browserbase calls on SKUs whose
+        # parser the L3 layer can't recognise.
+        dispatch = build_default_dispatch(cache_path=cache_path)
+        return _InchikeyAdapter(DirectDispatchInchikeyLookup(resolver=resolver, dispatch=dispatch))
 
     lookups: list[PriceLookup] = []
     for name in cfg.chain:

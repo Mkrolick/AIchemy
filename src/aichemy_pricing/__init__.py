@@ -39,7 +39,11 @@ from aichemy_pricing.browserbase import (
 )
 from aichemy_pricing.chain import CachedPriceLookup, ChainedPriceLookup
 from aichemy_pricing.http import make_cf_client, make_plain_client
-from aichemy_pricing.lookup_by_inchikey import LookupByInchikey
+from aichemy_pricing.lookup_by_inchikey import (
+    DirectDispatchInchikeyLookup,
+    LookupByInchikey,
+    VendorRewriter,
+)
 from aichemy_pricing.protocol import PriceLookup, VendorResolver
 from aichemy_pricing.ratelimit import TokenBucket
 from aichemy_pricing.resolvers.chained import ChainedVendorResolver
@@ -61,6 +65,7 @@ __all__ = [
     "ChainedPriceLookup",
     "ChainedVendorResolver",
     "Currency",
+    "DirectDispatchInchikeyLookup",
     "EnamineSdfResolver",
     "FluorochemVendor",
     "LookupByInchikey",
@@ -75,9 +80,11 @@ __all__ = [
     "TokenBucket",
     "VendorRef",
     "VendorResolver",
+    "VendorRewriter",
     "ZincTrancheResolver",
     "__version__",
     "build_default_chain",
+    "build_default_dispatch",
     "make_cf_client",
     "make_plain_client",
 ]
@@ -85,9 +92,14 @@ __all__ = [
 
 # Direct-HTTP vendor classes only. Enamine/Cayman/ChemCruz/Sigma reach the
 # chain through the L3 Browserbase layers appended below.
+#
+# TocrisVendor is intentionally excluded: Tocris restructured their product
+# HTML and the Pack-Size / List-Price markers the parser keys on are gone.
+# Under load every lookup runs out the connection timeout, which dominated
+# wall-clock for the 2026-04 validation cycle. Re-add once the parser is
+# rebuilt against the current page layout (see findings doc 2026-04-26).
 _DEFAULT_VENDOR_CLASSES: list[type] = [
     FluorochemVendor,  # L1 — Azure-blob JSON, no auth
-    TocrisVendor,  # L1 — SSR HTML, anonymous USD prices
     MolbaseVendor,  # L1 — SSR HTML, mostly Chinese suppliers
     MedChemExpressVendor,  # L2 — curl_cffi for Cloudflare
 ]
@@ -118,6 +130,50 @@ def build_default_chain(cache_path: Path | str) -> CachedPriceLookup:
             log.warning("build_default_chain: skipping %s — %s", cls.__name__, exc)
     # L3a — Browserbase Fetch (SSR HTML; chemcruz parser registered today).
     members.append(BrowserbaseFetchLookup())
-    # L3b — Browserbase Browser API (JS-rendered SPAs; enamine registered today).
-    members.append(BrowserbaseBrowserLookup())
+    # L3b — Browserbase Browser API: disabled. Each fall-through ate ~10s of
+    # session-setup time, which dominated wall-clock at scale even when its
+    # parsers (enamine) didn't fire. Re-enable when there is a per-vendor
+    # gate so non-enamine refs short-circuit before reaching it.
     return CachedPriceLookup(ChainedPriceLookup(members), db_path=cache_path, ttl_days=30)
+
+
+# DSN -> (parser_vendor, backend_factory) for direct dispatch.
+#   - DSN is the literal string in `PUBCHEM_EXT_DATASOURCE_NAME` and the
+#     `vendor` field on ResolverHits coming out of PubChemCompoundResolver.
+#   - parser_vendor is what the backend's parser registry / class expects
+#     to see in `ref.vendor`. It only differs from DSN for L3 backends
+#     (BrowserbaseFetchLookup keys on "chemcruz" not "25659";
+#     BrowserbaseBrowserLookup keys on "enamine" not "822").
+#
+# Sigma-Aldrich, Cayman ("843"), and Tocris ("10600") are deliberately
+# absent — their parsers either don't exist or are broken (Tocris HTML
+# restructure). Hits at those DSNs never produced quotes in the chain
+# fan-out either; skipping them is faithful to actual coverage and avoids
+# wasted HTTP work.
+_DEFAULT_DISPATCH_TABLE: dict[str, tuple[str, type]] = {
+    "29665": ("fluorochem", FluorochemVendor),  # Fluorochem L1
+    "959": ("medchemexpress", MedChemExpressVendor),  # MedChem L2
+    "25659": ("chemcruz", BrowserbaseFetchLookup),  # Santa Cruz L3a
+    "822": ("enamine", BrowserbaseBrowserLookup),  # Enamine L3b
+}
+
+
+def build_default_dispatch(cache_path: Path | str) -> dict[str, PriceLookup]:
+    """DSN-keyed dispatch map for `DirectDispatchInchikeyLookup`.
+
+    Each entry wraps a single backend in `VendorRewriter` (so the parser
+    sees its registered vendor name) and `CachedPriceLookup` (shared SQLite
+    file at `cache_path`; cache key is the original DSN+SKU so cross-DSN
+    lookups don't collide).
+    """
+    log = logging.getLogger(__name__)
+    out: dict[str, PriceLookup] = {}
+    for dsn, (parser_vendor, cls) in _DEFAULT_DISPATCH_TABLE.items():
+        try:
+            backend = cls()
+        except NotImplementedError as exc:
+            log.warning("build_default_dispatch: skipping %s — %s", cls.__name__, exc)
+            continue
+        rewritten = VendorRewriter(parser_vendor=parser_vendor, inner=backend)
+        out[dsn] = CachedPriceLookup(rewritten, db_path=cache_path, ttl_days=30)
+    return out

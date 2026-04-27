@@ -23,18 +23,30 @@ def test_build_default_chain_omits_excluded_vendors_and_includes_required(
     chain = build_default_chain(cache_path=tmp_path / "c.sqlite")
     assert isinstance(chain.inner, ChainedPriceLookup)
     vendor_names = {m.name for m in chain.inner.members}
-    excluded = {"apollo", "sigma", "sigma-aldrich", "tci", "bld", "bldpharm"}
+    # `tocris` is excluded too: HTML restructure leaves every lookup running
+    # out the connection timeout. `browserbase_browser` is excluded: only the
+    # `enamine` parser is registered there and every non-enamine ref ate
+    # ~10s session-setup time. Both are still reachable via the DSN
+    # dispatch path (build_default_dispatch).
+    excluded = {
+        "apollo",
+        "sigma",
+        "sigma-aldrich",
+        "tci",
+        "bld",
+        "bldpharm",
+        "tocris",
+        "browserbase_browser",
+    }
     assert vendor_names.isdisjoint(excluded)
-    # The 4 direct-HTTP vendor classes plus the two L3 Browserbase layers
-    # must always be present. ChemCruz/Enamine reach the chain *through*
-    # those L3 layers (parser registries), they are not chain members.
+    # Direct-HTTP vendor classes that survived the prune, plus L3a Fetch
+    # (chemcruz parser registered, gated per-vendor — short-circuits cheaply
+    # on misses).
     required = {
         "fluorochem",
-        "tocris",
         "molbase",
         "medchemexpress",
         "browserbase_fetch",
-        "browserbase_browser",
     }
     assert required.issubset(vendor_names)
 
