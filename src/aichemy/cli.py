@@ -707,6 +707,10 @@ def patents_fetch(
         endpoint=cfg.licenses.patentsview_endpoint,
         max_retries=cfg.licenses.fetch_max_retries,
         batch_size=cfg.licenses.fetch_batch_size,
+        backoff_seconds=cfg.licenses.fetch_backoff_seconds,
+        fetch_grant_xml=cfg.licenses.fetch_grant_xml,
+        progress_every=cfg.licenses.fetch_progress_every,
+        request_interval_seconds=cfg.licenses.fetch_request_interval_seconds,
     )
     out_path = patents_path(cfg, "patent_metadata.parquet")
     write_metadata_parquet(items, out_path)
