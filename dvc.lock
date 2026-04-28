@@ -5,12 +5,12 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: src/aichemy/cli.py
       hash: md5
-      md5: a075f478e1f777b682ebb58dc7897b16
-      size: 33684
+      md5: 7d237314e4e73a07a661aacdafb92353
+      size: 34088
     outs:
     - path: data/raw/metanetx
       hash: md5
@@ -19,16 +19,16 @@ stages:
       nfiles: 4
     - path: data/raw/uspto
       hash: md5
-      md5: cfa6d5aea4ded860540421874e9ea14f.dir
-      size: 75191394
-      nfiles: 1
+      md5: ccca6071cdabc5f1ed2fc96f5aa861c5.dir
+      size: 871956705
+      nfiles: 2
   ingest_metanetx:
     cmd: uv run aichemy ingest metanetx --config configs/default.yaml
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/raw/metanetx
       hash: md5
       md5: b72168c04c6c483c3c3d9cb6934e6c3f.dir
@@ -52,8 +52,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/raw/uspto
       hash: md5
       md5: ccca6071cdabc5f1ed2fc96f5aa861c5.dir
@@ -73,8 +73,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/metanetx/molecules_raw.parquet
       hash: md5
       md5: b45e895e1e2ff6e28e3c8d7f41c052e7
@@ -110,8 +110,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/normalized/molecules.parquet
       hash: md5
       md5: c8c7ff147247fd931af9c9d0cb8e679f
@@ -134,8 +134,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/deduped/molecules.parquet
       hash: md5
       md5: b1d60744a10bafa83d4b114b612cd728
@@ -158,8 +158,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/deduped/reactions.parquet
       hash: md5
       md5: 12e4db92246d5ca739c5abc2ce856b68
@@ -178,8 +178,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/filtered/reactions.parquet
       hash: md5
       md5: d47973b986b1256e64730f6eadd0f209
@@ -198,8 +198,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/validated/reactions.parquet
       hash: md5
       md5: f8eb4e2d66d188632ee421513da1fe6d
@@ -242,8 +242,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/augmented/reactions_thermo.parquet
       hash: md5
       md5: 2fcf789cc7585bee949b37dd7444b7cf
@@ -294,8 +294,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/balanced/reactions.parquet
       hash: md5
       md5: 511a8db065e1179734e72ea41679bb89
@@ -311,8 +311,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/augmented/reactions_yields.parquet
       hash: md5
       md5: 04d77f89dd66ac26cb04323fd4fcfcc1
@@ -335,16 +335,16 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/augmented/reactions_full.parquet
       hash: md5
       md5: 2fcf789cc7585bee949b37dd7444b7cf
       size: 40261316
     - path: src/aichemy/preprocessing/patents/fetch.py
       hash: md5
-      md5: fcda12799ae5a4caf7de0271dc304614
-      size: 17759
+      md5: 1a3281d020f3f0f8b338280295004462
+      size: 17696
     outs:
     - path: data/interim/patents/patent_metadata.parquet
       hash: md5
@@ -359,8 +359,8 @@ stages:
       size: 698
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/augmented/reactions_full.parquet
       hash: md5
       md5: 2fcf789cc7585bee949b37dd7444b7cf
@@ -383,8 +383,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/licenses/cpc_classifications.parquet
       hash: md5
       md5: f03ad4538c96c54506a6bcf54f3ee2d4
@@ -415,8 +415,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/augmented/reactions_full.parquet
       hash: md5
       md5: 2fcf789cc7585bee949b37dd7444b7cf
@@ -443,8 +443,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/augmented/reactions_full.parquet
       hash: md5
       md5: 2fcf789cc7585bee949b37dd7444b7cf
