@@ -15,6 +15,7 @@ metadata + a per-record ``fileLocationURI``, which is downloaded separately
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
@@ -100,15 +101,27 @@ def fetch_patents(
     max_retries: int = 3,
     batch_size: int = 25,
     backoff_seconds: float = 1.0,
+    fetch_grant_xml: bool = True,
+    progress_every: int = 0,
+    request_interval_seconds: float = 0.0,
 ) -> list[PatentMetadata]:
     """Fetch metadata for the given patent numbers from the USPTO ODP.
 
     Each batch is one Lucene OR-query against the ODP search endpoint; each
-    hit triggers a follow-up two-step grant-XML download for abstract/claims.
-    Returns one ``PatentMetadata`` per input number, with status:
-      - ``"ok"``        — search hit + (optional) XML parsed
+    hit optionally triggers a follow-up two-step grant-XML download for
+    abstract/claims (controlled by ``fetch_grant_xml``). Returns one
+    ``PatentMetadata`` per input number, with status:
+      - ``"ok"``        — search hit (and, if requested, XML parsed)
       - ``"not_found"`` — search returned no record for that number
       - ``"error"``     — search retries exhausted on a permanent failure
+
+    When ``fetch_grant_xml`` is False, abstract and claims_text are left
+    None; CPC codes / dates / assignee from the search response are still
+    captured. This is dramatically faster (~30x fewer HTTP calls) but
+    deprives the LLM classifier of the per-patent text context.
+
+    ``progress_every`` > 0 logs an INFO line every N batches with running
+    totals; 0 disables. Helpful for runs against >10k patents.
     """
     if api_key is None:
         api_key = os.environ.get(API_KEY_ENV)
@@ -118,14 +131,37 @@ def fetch_patents(
             "https://developer.uspto.gov and export it before running"
         )
 
+    total_batches = (len(patent_numbers) + batch_size - 1) // batch_size
     out: list[PatentMetadata] = []
     seen: set[str] = set()
-    for i in range(0, len(patent_numbers), batch_size):
+    n_ok = n_nf = n_err = 0
+    started = time.monotonic()
+    for batch_idx, i in enumerate(range(0, len(patent_numbers), batch_size), start=1):
+        if request_interval_seconds and batch_idx > 1:
+            time.sleep(request_interval_seconds)
         batch = patent_numbers[i : i + batch_size]
-        results = _fetch_batch(batch, endpoint, api_key, max_retries, backoff_seconds)
+        results = _fetch_batch(
+            batch, endpoint, api_key, max_retries, backoff_seconds, fetch_grant_xml
+        )
         for r in results:
             seen.add(r.patent_number)
             out.append(r)
+            if r.fetch_status == "ok":
+                n_ok += 1
+            elif r.fetch_status == "not_found":
+                n_nf += 1
+            else:
+                n_err += 1
+        if progress_every and batch_idx % progress_every == 0:
+            elapsed = time.monotonic() - started
+            rate = batch_idx / elapsed if elapsed > 0 else 0.0
+            eta = (total_batches - batch_idx) / rate if rate > 0 else float("inf")
+            print(
+                f"[patents fetch] batch {batch_idx}/{total_batches}  "
+                f"ok={n_ok} not_found={n_nf} err={n_err}  "
+                f"{rate:.2f} batches/s  eta {eta:.0f}s",
+                flush=True,
+            )
     for pn in patent_numbers:
         if pn not in seen:
             out.append(_error_record(pn))
@@ -138,6 +174,7 @@ def _fetch_batch(
     api_key: str,
     max_retries: int,
     backoff_seconds: float,
+    fetch_grant_xml: bool = True,
 ) -> list[PatentMetadata]:
     # ODP wants the bare patentNumber form ("8200000"), not Lowe's
     # document-id form ("US08200000B2"). Normalize for the query, but match
@@ -157,6 +194,8 @@ def _fetch_batch(
             r = requests.get(endpoint, params=params, headers=headers, timeout=30)
             if r.status_code == 200:
                 pairs = _parse_response(r.json(), batch, norm_to_orig)
+                if not fetch_grant_xml:
+                    return [rec for rec, _ in pairs]
                 for rec, raw in pairs:
                     if rec.fetch_status != "ok":
                         continue
@@ -184,7 +223,17 @@ def _fetch_batch(
                 # whole batch as not_found rather than retry.
                 return [_not_found_record(pn) for pn in batch]
             if r.status_code in (429, 500, 502, 503, 504) and attempt < max_retries - 1:
-                time.sleep(backoff_seconds * (2**attempt))
+                # Honor Retry-After if the server tells us how long to wait;
+                # otherwise fall back to exponential backoff. Cap at 60s to
+                # avoid pathological waits on misconfigured upstreams.
+                wait = backoff_seconds * (2**attempt)
+                ra = r.headers.get("Retry-After")
+                if ra:
+                    with contextlib.suppress(ValueError):
+                        wait = max(wait, min(float(ra), 60.0))
+                if r.status_code == 429:
+                    log.warning("ODP search 429 (attempt %d, sleeping %.1fs)", attempt + 1, wait)
+                time.sleep(wait)
                 continue
             log.warning("ODP search returned %s for batch=%s", r.status_code, batch[:3])
             break
