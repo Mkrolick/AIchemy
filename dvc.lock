@@ -438,3 +438,23 @@ stages:
       hash: md5
       md5: 9c288d42aa489e4bbe6408a48bf81ff5
       size: 40277142
+  select_reactions:
+    cmd: uv run aichemy select reactions --config configs/default.yaml
+    deps:
+    - path: configs/default.yaml
+      hash: md5
+      md5: 3ea81c77e4560aa60933e82ed0367c16
+      size: 1086
+    - path: data/interim/augmented/reactions_full.parquet
+      hash: md5
+      md5: 2fcf789cc7585bee949b37dd7444b7cf
+      size: 40261316
+    - path: src/aichemy/preprocessing/select.py
+      hash: md5
+      md5: 6c8e7105bcdc2deceb5ba1f2583b6589
+      size: 4231
+    outs:
+    - path: data/interim/selected/reactions.parquet
+      hash: md5
+      md5: 2c90d4dae1f2b62e92e1e371b6a1b076
+      size: 9652887
