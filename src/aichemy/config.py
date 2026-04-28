@@ -41,13 +41,46 @@ class YieldConfig(BaseModel):
 class LicensesConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
-    patentsview_endpoint: str = "https://search.patentsview.org/api/v1/patent"
+    patentsview_endpoint: str = "https://api.uspto.gov/api/v1/patent/applications/search"
     cpc_rules_path: Path = Field(default_factory=lambda: Path("configs/cpc_rules.yaml"))
     cache_path: Path = Field(default_factory=lambda: Path("data/interim/licenses/llm_cache.jsonl"))
     llm_model: str = "claude-haiku-4-5"
     fetch_batch_size: int = 25
     fetch_max_retries: int = 3
+    # Seconds to sleep between successive batch requests to stay under ODP's
+    # ~60 req/min throttle. 1.0s ≈ 60 batches/min. Set to 0 to disable.
+    fetch_request_interval_seconds: float = 1.0
+    # Initial backoff base for exponential retry on 429/5xx; doubles each
+    # attempt. 2.0s with max_retries=3 → 2s + 4s = 6s total before giving up.
+    # Honored Retry-After headers override this.
+    fetch_backoff_seconds: float = 2.0
+    # When True, fetch the per-patent grant XML for abstract + claims_text.
+    # The XML download adds ~2 HTTP calls per successful patent — at 59k
+    # patents this dominates wall-clock time (hours). False keeps CPC codes
+    # / dates / assignee from the search response (cheap) but leaves
+    # abstract and claims_text None; the LLM stage falls back to its
+    # no-text default. Default False because the search-only path is
+    # ~30x faster and the LLM classifier still functions without text.
+    fetch_grant_xml: bool = False
+    fetch_progress_every: int = 100
     llm_max_retries: int = 3
+
+
+class SelectionConfig(BaseModel):
+    """Curated-subset selection (Stage 14: select_reactions)."""
+
+    model_config = {"extra": "forbid"}
+
+    # Target total number of reactions in the final selected set.
+    target_total: int = 100_000
+
+    # Seed for reproducible random tiebreaks and score=0 fill order.
+    seed: int = 42
+
+    # The boolean column whose True rows are pinned in the output regardless
+    # of overlap score. "rdkit_balanced" trusts the strict atom-count math;
+    # "balanced" pins the looser SYN-RBL/curator claim.
+    mandatory_column: Literal["rdkit_balanced", "balanced"] = "rdkit_balanced"
 
 
 class MetaNetXURLsConfig(BaseModel):
@@ -187,6 +220,7 @@ class PreprocessingConfig(BaseModel):
     prices: PricesConfig = Field(default_factory=PricesConfig)
     paths: PathsConfig = Field(default_factory=PathsConfig)
     licenses: LicensesConfig = Field(default_factory=LicensesConfig)
+    selection: SelectionConfig = Field(default_factory=SelectionConfig)
 
 
 def _deep_merge(base: dict[str, Any], override: Mapping[str, Any]) -> dict[str, Any]:

@@ -70,3 +70,10 @@ prices:
 
 paths:
   data_dir: data
+
+selection:
+  # Curated-subset target. ~40,874 rdkit_balanced rows are pinned;
+  # the remainder are filled by TF-IDF mol-overlap with the pinned set.
+  target_total: 100000
+  seed: 42
+  mandatory_column: rdkit_balanced

@@ -7,7 +7,9 @@ import typer
 
 from aichemy.config import PreprocessingConfig, load_config
 from aichemy.preprocessing import export as export_module
+from aichemy.preprocessing import select as select_module
 from aichemy.preprocessing.augment import directionality as directionality_module
+from aichemy.preprocessing.augment import licenses as licenses_module
 from aichemy.preprocessing.augment import prices as prices_module
 from aichemy.preprocessing.augment import (
     prices_scrapers as _prices_scrapers,  # noqa: F401 — side effect: registers scrapers
@@ -18,6 +20,8 @@ from aichemy.preprocessing.augment.directionality import DirectionalityMode
 from aichemy.preprocessing.balance import validate as balance_validate_module
 from aichemy.preprocessing.io import (
     interim_path,
+    licenses_path,
+    patents_path,
     processed_path,
     raw_path,
     read_molecules,
@@ -34,10 +38,14 @@ ingest_app = typer.Typer(help="Ingest raw data from a source.")
 dedup_app = typer.Typer(help="Deduplicate molecules or reactions.")
 balance_app = typer.Typer(help="Balance and validate reaction atom counts.")
 augment_app = typer.Typer(help="Enrich the merged table with yields, prices, directionality.")
+patents_app = typer.Typer(help="Patent metadata fetching and license classification.")
+select_app = typer.Typer(help="Curate the post-augmentation reaction set.")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(dedup_app, name="dedup")
 app.add_typer(balance_app, name="balance")
 app.add_typer(augment_app, name="augment")
+app.add_typer(patents_app, name="patents")
+app.add_typer(select_app, name="select")
 app.add_typer(solver_app, name="solve")
 
 
@@ -616,6 +624,215 @@ def augment_directionality(
     typer.echo(f"[augment directionality] wrote {augmented.height} rows.")
 
 
+@augment_app.command("licenses")
+def augment_licenses_cmd(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Merge CPC + LLM license classifications onto reactions."""
+    cfg = _load(config, override)
+    input_path = interim_path(cfg, "augmented", "reactions_full.parquet")
+    output_path = interim_path(cfg, "augmented", "reactions_licensed.parquet")
+
+    if not input_path.exists():
+        write_empty_reactions(output_path)
+        typer.echo(f"[augment licenses] upstream {input_path} missing; wrote empty parquet.")
+        return
+
+    reactions = read_reactions(input_path)
+    cpc_path = licenses_path(cfg, "cpc_classifications.parquet")
+    llm_path = licenses_path(cfg, "llm_classifications.parquet")
+
+    if cpc_path.exists():
+        cpc = pl.read_parquet(cpc_path)
+    else:
+        cpc = pl.DataFrame(
+            schema={
+                "rxn_id": pl.Utf8,
+                "patent_number": pl.Utf8,
+                "patent_active": pl.Boolean,
+                "cpc_ambiguous": pl.Boolean,
+                "process_covered_cpc": pl.Boolean,
+                "composition_covered_cpc": pl.Boolean,
+            }
+        )
+
+    if llm_path.exists():
+        llm = pl.read_parquet(llm_path)
+    else:
+        llm = pl.DataFrame(
+            schema={
+                "patent_number": pl.Utf8,
+                "process_covered": pl.Boolean,
+                "composition_covered": pl.Boolean,
+            }
+        )
+
+    out = licenses_module.augment_licenses(reactions, cpc, llm)
+    write_reactions(out, output_path)
+
+    n_proc = int(out["process_covered"].sum())
+    n_comp = int(out["composition_covered"].sum())
+    typer.echo(
+        f"[augment licenses] {out.height} reactions "
+        f"({n_proc} process-covered, {n_comp} composition-covered) → {output_path}"
+    )
+
+
+@patents_app.command("fetch")
+def patents_fetch(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Fetch USPTO ODP metadata for every USPTO patent referenced by reactions."""
+    import os
+
+    from aichemy.preprocessing.patents.fetch import (
+        API_KEY_ENV,
+        fetch_patents,
+        write_metadata_parquet,
+    )
+
+    if not os.environ.get(API_KEY_ENV):
+        typer.echo(
+            f"[patents fetch] {API_KEY_ENV} env var is required "
+            "(get a free key at https://developer.uspto.gov)",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    cfg = _load(config, override)
+    reactions = read_reactions(interim_path(cfg, "augmented", "reactions_full.parquet"))
+
+    uspto_rxns = reactions.filter(pl.col("source") == "uspto")
+    patent_numbers = sorted({rid.split(":")[1] for rid in uspto_rxns["rxn_id"].to_list()})
+    typer.echo(f"[patents fetch] {len(patent_numbers)} unique USPTO patents to fetch")
+
+    items = fetch_patents(
+        patent_numbers,
+        endpoint=cfg.licenses.patentsview_endpoint,
+        max_retries=cfg.licenses.fetch_max_retries,
+        batch_size=cfg.licenses.fetch_batch_size,
+        backoff_seconds=cfg.licenses.fetch_backoff_seconds,
+        fetch_grant_xml=cfg.licenses.fetch_grant_xml,
+        progress_every=cfg.licenses.fetch_progress_every,
+        request_interval_seconds=cfg.licenses.fetch_request_interval_seconds,
+    )
+    out_path = patents_path(cfg, "patent_metadata.parquet")
+    write_metadata_parquet(items, out_path)
+
+    n_ok = sum(1 for p in items if p.fetch_status == "ok")
+    typer.echo(f"[patents fetch] wrote {len(items)} rows ({n_ok} ok) → {out_path}")
+
+
+@patents_app.command("classify-cpc")
+def patents_classify_cpc(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Classify each (rxn_id, patent) pair via CPC-code rules."""
+    from datetime import date
+
+    from aichemy.preprocessing.patents.cpc import (
+        classify_dataframe,
+        load_cpc_rules,
+    )
+
+    cfg = _load(config, override)
+    reactions = read_reactions(interim_path(cfg, "augmented", "reactions_full.parquet"))
+    patents = pl.read_parquet(patents_path(cfg, "patent_metadata.parquet"))
+    rules = load_cpc_rules(cfg.licenses.cpc_rules_path)
+
+    out = classify_dataframe(reactions, patents, rules=rules, today=date.today())
+    out_path = licenses_path(cfg, "cpc_classifications.parquet")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out.write_parquet(out_path)
+
+    n_ambig = int(out["cpc_ambiguous"].sum())
+    n_active = int(out["patent_active"].sum())
+    typer.echo(
+        f"[patents classify-cpc] {out.height} rows "
+        f"({n_active} active, {n_ambig} ambiguous → LLM) → {out_path}"
+    )
+
+
+@patents_app.command("classify-llm")
+def patents_classify_llm(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Eagerly classify CPC-ambiguous active patents via Claude; cache results."""
+    import os
+
+    import anthropic
+
+    from aichemy.preprocessing.patents.llm_classify import classify_ambiguous_patents
+
+    cfg = _load(config, override)
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        raise typer.BadParameter("ANTHROPIC_API_KEY not set; LLM classification cannot proceed.")
+
+    cpc = pl.read_parquet(licenses_path(cfg, "cpc_classifications.parquet"))
+    patents = pl.read_parquet(patents_path(cfg, "patent_metadata.parquet"))
+    reactions = read_reactions(interim_path(cfg, "augmented", "reactions_full.parquet"))
+
+    client = anthropic.Anthropic()
+    out_path = licenses_path(cfg, "llm_classifications.parquet")
+    out = classify_ambiguous_patents(
+        cpc=cpc,
+        patents=patents,
+        reactions=reactions,
+        cache_path=cfg.licenses.cache_path,
+        out_path=out_path,
+        client=client,
+        model=cfg.licenses.llm_model,
+        max_retries=cfg.licenses.llm_max_retries,
+    )
+    n_hit = int(out["cache_hit"].sum())
+    typer.echo(
+        f"[patents classify-llm] {out.height} patents classified "
+        f"({n_hit} cache hits, {out.height - n_hit} fresh) → {out_path}"
+    )
+
+
+@select_app.command("reactions")
+def select_reactions_cmd(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Select a curated subset of reactions (TF-IDF mol-overlap; pins rdkit_balanced)."""
+    cfg = _load(config, override)
+    input_path = interim_path(cfg, "augmented", "reactions_full.parquet")
+    output_path = interim_path(cfg, "selected", "reactions.parquet")
+
+    if not input_path.exists():
+        write_empty_reactions(output_path)
+        typer.echo(f"[select reactions] upstream {input_path} missing; wrote empty parquet.")
+        return
+
+    df = read_reactions(input_path)
+    out = select_module.select_reactions(
+        df,
+        target_total=cfg.selection.target_total,
+        seed=cfg.selection.seed,
+        mandatory_column=cfg.selection.mandatory_column,
+    )
+    write_reactions(out, output_path)
+
+    if out.height == 0:
+        typer.echo(f"[select reactions] input empty; wrote {output_path}.")
+        return
+
+    mandatory_kept = int(out.filter(pl.col(cfg.selection.mandatory_column)).height)
+    fill = out.height - mandatory_kept
+    typer.echo(
+        f"[select reactions] selected {out.height:,} of {df.height:,} "
+        f"({mandatory_kept:,} mandatory {cfg.selection.mandatory_column} + "
+        f"{fill:,} by TF-IDF mol overlap)."
+    )
+
+
 @app.command("export")
 def export(
     config: Path = ConfigOpt,
@@ -623,7 +840,7 @@ def export(
 ) -> None:
     """Write final unified hypergraph parquets + manifest.json to data/processed/."""
     cfg = _load(config, override)
-    reactions_in = interim_path(cfg, "augmented", "reactions_full.parquet")
+    reactions_in = interim_path(cfg, "augmented", "reactions_licensed.parquet")
     molecules_in = interim_path(cfg, "augmented", "molecules_priced.parquet")
     reactions_out = processed_path(cfg, "reactions.parquet")
     molecules_out = processed_path(cfg, "molecules.parquet")
