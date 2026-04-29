@@ -186,3 +186,12 @@ stages:
       - data/processed/reactions.parquet
       - data/processed/molecules.parquet
       - data/processed/hypergraph_manifest.json
+
+  augment_metanetx_yields_thermo:
+    cmd: uv run aichemy augment metanetx-yields --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/augment/yields_thermo.py
+      - data/processed/reactions.parquet
+    outs:
+      - data/processed/reactions_thermo_yields.parquet
