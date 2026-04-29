@@ -188,18 +188,28 @@ def build_and_solve(
     prob += (revenue - cost - process_royalty - composition_royalty, "total_profit")
 
     # Mass balance: for each molecule, supply = consumption.
+    #
+    # The naive form (scan all rxn_meta inside the per-molecule loop) is
+    # O(M·R·P) — at full corpus that's ~1.3M × 365K × ~5 ≈ 5e12 comparisons
+    # and the model build dominates wall-clock (5+ minutes per cell). Pre-
+    # index participants once for O(M + R·P) total (~2 million ops), making
+    # the build run in seconds.
+    producers: dict[str, list[tuple[str, float, float]]] = {}
+    consumers: dict[str, list[tuple[str, float]]] = {}
+    for m in rxn_meta:
+        rxn_id = m["rxn_id"]
+        yld = m["yield_rate"]
+        for mid, coef in m["products"]:
+            producers.setdefault(mid, []).append((rxn_id, coef, yld))
+        for mid, coef in m["reactants"]:
+            consumers.setdefault(mid, []).append((rxn_id, coef))
+
     for mol_id in referenced:
         supply = q_buy[mol_id] + pulp.lpSum(
-            coef * m["yield_rate"] * f[m["rxn_id"]]
-            for m in rxn_meta
-            for (mid, coef) in m["products"]
-            if mid == mol_id
+            coef * yld * f[rxn_id] for (rxn_id, coef, yld) in producers.get(mol_id, [])
         )
         consumption = q_sell[mol_id] + pulp.lpSum(
-            coef * f[m["rxn_id"]]
-            for m in rxn_meta
-            for (mid, coef) in m["reactants"]
-            if mid == mol_id
+            coef * f[rxn_id] for (rxn_id, coef) in consumers.get(mol_id, [])
         )
         prob += supply == consumption, f"mass_balance_{_safe(mol_id)}"
 
