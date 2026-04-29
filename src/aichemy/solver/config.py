@@ -56,6 +56,12 @@ class SolverConfig(BaseModel):
     # where the user wants only a small number of distinct steps.
     max_reactions: int | None = None
 
+    # Molecules that are not allowed to be sold (q_sell pinned to 0).
+    # Useful for "what-if I can't monetize this specific compound" analyses
+    # — e.g., regulatory restrictions, internal-use targets, or to force
+    # the optimizer to find an alternate revenue path.
+    forbidden_sell_molecules: list[str] = Field(default_factory=list)
+
     # Backend: "cbc" (bundled with pulp), "gurobi" (requires license).
     backend: Literal["cbc", "gurobi"] = "cbc"
 

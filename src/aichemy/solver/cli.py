@@ -32,6 +32,14 @@ _MaxReactionsOpt = typer.Option(
     "--max-reactions",
     help="Cap on the number of activated reactions (synthesis-route length).",
 )
+_ForbidSellOpt = typer.Option(
+    "",
+    "--forbid-sell",
+    help=(
+        "Comma-separated mol_ids that the solver may not sell "
+        "(q_sell pinned to 0). Example: --forbid-sell MNXM731718,MNXM319"
+    ),
+)
 _BackendOpt = typer.Option("cbc", "--backend")
 _VerboseOpt = typer.Option(False, "--verbose")
 _OutputOpt = typer.Option(
@@ -69,6 +77,7 @@ def solve(
     budget: float = _BudgetOpt,
     max_products: int | None = _MaxProductsOpt,
     max_reactions: int | None = _MaxReactionsOpt,
+    forbid_sell: str = _ForbidSellOpt,
     backend: str = _BackendOpt,
     verbose: bool = _VerboseOpt,
     output: Path | None = _OutputOpt,
@@ -76,10 +85,12 @@ def solve(
 ) -> None:
     """Solve the profit-maximization MILP on `data/processed/`."""
     cfg = load_config(config, override)
+    forbidden = [m.strip() for m in forbid_sell.split(",") if m.strip()]
     solver_cfg = SolverConfig(
         budget=budget,
         max_products=max_products,
         max_reactions=max_reactions,
+        forbidden_sell_molecules=forbidden,
         backend=backend,  # type: ignore[arg-type]
         verbose=verbose,
         output_path=output or processed_path(cfg, "solution.json"),

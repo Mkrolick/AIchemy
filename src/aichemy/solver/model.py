@@ -162,8 +162,17 @@ def build_and_solve(
     q_buy = {
         mol_id: pulp.LpVariable(f"qbuy_{_safe(mol_id)}", lowBound=0.0) for mol_id in referenced
     }
+    forbidden_sell = set(config.forbidden_sell_molecules)
     q_sell = {
-        mol_id: pulp.LpVariable(f"qsell_{_safe(mol_id)}", lowBound=0.0) for mol_id in referenced
+        mol_id: pulp.LpVariable(
+            f"qsell_{_safe(mol_id)}",
+            lowBound=0.0,
+            # Pin forbidden products at 0 by clamping the variable's upper bound.
+            # Cheaper than an explicit equality constraint and makes the
+            # forbid-list visible in the LP file.
+            upBound=0.0 if mol_id in forbidden_sell else None,
+        )
+        for mol_id in referenced
     }
     w = {mol_id: pulp.LpVariable(f"w_{_safe(mol_id)}", cat=pulp.LpBinary) for mol_id in referenced}
 
