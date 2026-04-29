@@ -27,6 +27,11 @@ _ConfigOpt = typer.Option(..., "--config", help="Preprocessing config YAML")
 _OverrideOpt = typer.Option([], "--override", help="Config override YAMLs (repeatable)")
 _BudgetOpt = typer.Option(10_000.0, "--budget")
 _MaxProductsOpt = typer.Option(None, "--max-products")
+_MaxReactionsOpt = typer.Option(
+    None,
+    "--max-reactions",
+    help="Cap on the number of activated reactions (synthesis-route length).",
+)
 _BackendOpt = typer.Option("cbc", "--backend")
 _VerboseOpt = typer.Option(False, "--verbose")
 _OutputOpt = typer.Option(
@@ -63,6 +68,7 @@ def solve(
     override: list[Path] = _OverrideOpt,
     budget: float = _BudgetOpt,
     max_products: int | None = _MaxProductsOpt,
+    max_reactions: int | None = _MaxReactionsOpt,
     backend: str = _BackendOpt,
     verbose: bool = _VerboseOpt,
     output: Path | None = _OutputOpt,
@@ -73,6 +79,7 @@ def solve(
     solver_cfg = SolverConfig(
         budget=budget,
         max_products=max_products,
+        max_reactions=max_reactions,
         backend=backend,  # type: ignore[arg-type]
         verbose=verbose,
         output_path=output or processed_path(cfg, "solution.json"),
