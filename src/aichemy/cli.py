@@ -16,6 +16,7 @@ from aichemy.preprocessing.augment import (
 )
 from aichemy.preprocessing.augment import thermo as thermo_module
 from aichemy.preprocessing.augment import yields as yields_module
+from aichemy.preprocessing.augment import yields_thermo as yields_thermo_module
 from aichemy.preprocessing.augment.directionality import DirectionalityMode
 from aichemy.preprocessing.balance import validate as balance_validate_module
 from aichemy.preprocessing.io import (
@@ -517,6 +518,38 @@ def augment_yields(
     augmented = yields_module.augment_yields(df, cfg.yields)
     write_reactions(augmented, output_path)
     typer.echo(f"[augment yields] wrote {augmented.height} rows (strategy={cfg.yields.strategy}).")
+
+
+@augment_app.command("metanetx-yields")
+def augment_metanetx_yields(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Replace MetaNetX yield_rate with ΔG-derived equilibrium yield.
+
+    Reads the post-export reactions table (delta_g + yield_rate side by
+    side) and overwrites yield_rate for MetaNetX rows where delta_g is
+    non-null. USPTO rows pass through unchanged. Output goes to a
+    sibling file so the original `data/processed/reactions.parquet`
+    is not clobbered.
+    """
+    cfg = _load(config, override)
+    input_path = processed_path(cfg, "reactions.parquet")
+    output_path = processed_path(cfg, "reactions_thermo_yields.parquet")
+
+    if not input_path.exists():
+        write_empty_reactions(output_path)
+        typer.echo(f"[augment metanetx-yields] upstream {input_path} missing; wrote empty parquet.")
+        return
+
+    df = read_reactions(input_path)
+    out = yields_thermo_module.augment_metanetx_yields_thermo(df)
+    write_reactions(out, output_path)
+    n_thermo = out.filter(pl.col("_yield_source") == "thermodynamic").height
+    typer.echo(
+        f"[augment metanetx-yields] wrote {out.height} rows "
+        f"({n_thermo} replaced via ΔG) → {output_path}"
+    )
 
 
 @augment_app.command("prices")
