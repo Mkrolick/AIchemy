@@ -335,12 +335,18 @@ def _make_solver(config: SolverConfig) -> pulp.LpSolver:
 
 
 def _safe(name: str) -> str:
-    """pulp variable names can't contain certain chars — sanitize."""
+    """pulp variable names can't contain certain chars — sanitize.
+
+    Distinct multi-char replacements so chemically-distinct mol_ids that
+    differ only in disallowed chars (e.g., [H+] vs [H-]) don't collapse
+    to the same name and trigger PuLP's "overlapping constraint names"
+    error when both appear in mass_balance_<mol_id> constraints.
+    """
     return (
-        name.replace(":", "_")
-        .replace("/", "_")
-        .replace("+", "_")
-        .replace("-", "_")
-        .replace(".", "_")
-        .replace("@", "_")
+        name.replace(":", "_co_")
+        .replace("/", "_sl_")
+        .replace("+", "_pl_")
+        .replace("-", "_mi_")
+        .replace(".", "_dt_")
+        .replace("@", "_at_")
     )
