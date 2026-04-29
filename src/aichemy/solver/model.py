@@ -227,6 +227,13 @@ def build_and_solve(
             "product_cap",
         )
 
+    # Reaction cardinality (synthesis-route length cap)
+    if config.max_reactions is not None:
+        prob += (
+            pulp.lpSum(y[m["rxn_id"]] for m in rxn_meta) <= config.max_reactions,
+            "reaction_cap",
+        )
+
     # Solve
     solver = _make_solver(config)
     prob.solve(solver)

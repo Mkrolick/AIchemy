@@ -51,6 +51,11 @@ class SolverConfig(BaseModel):
     # Set to None to allow any number.
     max_products: int | None = None
 
+    # Cardinality cap on the number of reactions activated.
+    # Set to None to allow any number. Useful for synthesis-route lengths
+    # where the user wants only a small number of distinct steps.
+    max_reactions: int | None = None
+
     # Backend: "cbc" (bundled with pulp), "gurobi" (requires license).
     backend: Literal["cbc", "gurobi"] = "cbc"
 
