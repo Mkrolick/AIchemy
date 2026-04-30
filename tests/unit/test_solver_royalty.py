@@ -67,6 +67,48 @@ def test_process_royalty_reduces_objective_by_expected_amount():
     assert abs((sol_no.objective_value - sol_p.objective_value) - expected_delta) < 1e-2
 
 
+def test_process_royalty_uses_coef_grams_under_non_unit_mw():
+    """Process royalty must scale with `coef_grams` (= coef_mol · MW), not
+    with the bare molar coefficient. A+B→C with MW=(10, 10, 20): per
+    mol-extent the reaction produces 1·20 = 20 g of C at $10/g, so the
+    per-extent royalty at r_process=0.5 is 0.5·10·20·η·f. Catches a
+    regression where MW is dropped from the royalty term in model.py.
+    """
+    reactions = pl.DataFrame(
+        {
+            "rxn_id": ["RX1"],
+            "yield_rate": [1.0],
+            "reactants": [
+                [
+                    {"mol_id": "A", "coefficient": 1.0},
+                    {"mol_id": "B", "coefficient": 1.0},
+                ]
+            ],
+            "products": [[{"mol_id": "C", "coefficient": 1.0}]],
+            "rdkit_balanced": [True],
+            "balanced": [True],
+            "patent_active": [True],
+            "process_covered": [True],
+            "composition_covered": [False],
+        }
+    )
+    # MW: 1·10 (A) + 1·10 (B) = 1·20 (C) — mass-balanced.
+    molecules = pl.DataFrame(
+        {
+            "mol_id": ["A", "B", "C"],
+            "mol_weight": [10.0, 10.0, 20.0],
+            "price_per_gram": [1.0, 1.0, 10.0],
+        }
+    )
+    base = {"max_flow": 1.0, "budget": 2.0}  # budget binds at f=0.1
+    sol_no = build_and_solve(reactions, molecules, SolverConfig(**base, r_process=0.0, r_comp=0.0))
+    sol_p = build_and_solve(reactions, molecules, SolverConfig(**base, r_process=0.5, r_comp=0.0))
+    flow = sol_no.activated_reactions[0]["flow"]
+    coef_grams_c = 1.0 * 20.0  # coef_mol · MW_C
+    expected_delta = 0.5 * 10.0 * coef_grams_c * 1.0 * flow
+    assert abs((sol_no.objective_value - sol_p.objective_value) - expected_delta) < 1e-2
+
+
 def test_composition_royalty_reduces_objective_by_expected_amount():
     """At r_comp=0.5, composition-covered product pays 0.5 · price_sell · q_sell.
 
