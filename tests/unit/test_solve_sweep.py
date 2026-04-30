@@ -25,7 +25,16 @@ def _fixture():
             "composition_covered": [True],
         }
     )
-    molecules = pl.DataFrame({"mol_id": ["A", "C"], "price_per_gram": [1.0, 10.0]})
+    # mol_weight=1 everywhere → coef_grams == coef_mol, so the mass-balance
+    # math reduces to the legacy unit-coef regime and the closed-form
+    # royalty/revenue expectations in this file hold without translation.
+    molecules = pl.DataFrame(
+        {
+            "mol_id": ["A", "C"],
+            "mol_weight": [1.0, 1.0],
+            "price_per_gram": [1.0, 10.0],
+        }
+    )
     return reactions, molecules
 
 

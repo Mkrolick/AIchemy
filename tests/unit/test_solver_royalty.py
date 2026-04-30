@@ -34,9 +34,13 @@ def _two_reaction_fixture(*, process_covered: bool, composition_covered: bool):
             "composition_covered": [composition_covered],
         }
     )
+    # mol_weight=1 everywhere → coef_grams == coef_mol, which keeps the
+    # closed-form royalty formula `r · price · yield · f` intact (identical
+    # to the legacy unit-coef regime, modulo coef-aware royalty math).
     molecules = pl.DataFrame(
         {
             "mol_id": ["A", "B", "C"],
+            "mol_weight": [1.0, 1.0, 1.0],
             "price_per_gram": [1.0, 1.0, 10.0],
         }
     )
