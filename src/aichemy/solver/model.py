@@ -138,7 +138,12 @@ def build_and_solve(
     rxn_meta: list[dict[str, Any]] = []
     for row in reactions.iter_rows(named=True):
         rxn_id = row["rxn_id"]
-        yield_rate = row.get("yield_rate") or 0.85  # fallback to prior-mean
+        # Fallback applies only when the value is missing (None) — `or` would
+        # also swallow a legitimate yield of 0.0, silently rewriting a "this
+        # reaction never produces product" row into the prior-mean and inviting
+        # phantom-profit solutions on it.
+        yr = row.get("yield_rate")
+        yield_rate = 0.85 if yr is None else yr
         reactants = [
             (stoich["mol_id"], float(stoich["coefficient"])) for stoich in row["reactants"]
         ]
@@ -273,8 +278,16 @@ def build_and_solve(
         prob += f[rxn_id] >= config.min_flow * y[rxn_id], f"flow_lb_{_safe(rxn_id)}"
         prob += f[rxn_id] <= config.max_flow * y[rxn_id], f"flow_ub_{_safe(rxn_id)}"
 
-    # Sellable-quantity bound (w_m switches sell_m on/off)
-    sell_big_m = config.max_flow * 100.0  # generous upper bound
+    # Sellable-quantity bound (w_m switches sell_m on/off). After mass-
+    # basis, q_sell is in grams: budget/min_buy_price is the tightest
+    # valid bound, since Σ q_buy ≤ budget/min_buy_price and balanced
+    # reactions yield Σ q_sell ≤ Σ q_buy under η ≤ 1. The earlier
+    # `max_flow · 100` was in mol-extent units, not grams — silently
+    # clamping sales in high-MW or cheap-input regimes. Skip non-positive
+    # buy prices to avoid div-by-zero on degenerate data; if no positive
+    # price exists at all, fall back to a finite huge value.
+    positive_buys = [bp for (bp, _) in price_lookup.values() if bp > 0]
+    sell_big_m = config.budget / min(positive_buys) if positive_buys else config.budget * 1e6
     for mol_id in referenced:
         prob += q_sell[mol_id] <= sell_big_m * w[mol_id], f"sell_switch_{_safe(mol_id)}"
 
