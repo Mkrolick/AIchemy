@@ -1,54 +1,65 @@
 """MILP profit-maximization over the chemo-enzymatic reaction hypergraph.
 
-Follows the formulation from `proposal.md`:
+Sets and parameters
+-------------------
+    R                       set of reactions
+    C                       set of chemicals
+    π_c^buy, π_c^sell       buy / sell unit price of chemical c
+    a_{c,r}                 molar stoichiometric coefficient of c in reaction r
+    η_r                     expected yield of reaction r (from ΔG)
+    W_c                     molecular weight of chemical c
+    B                       total budget
+    ρ_proc, ρ_comp          process / composition royalty rates
 
 Decision variables
 ------------------
-    f_r ∈ ℝ≥0         flow through reaction r (see "Mass-balance basis" below)
-    y_r ∈ {0, 1}      whether reaction r is activated
-    w_m ∈ {0, 1}      whether molecule m is targeted for sale
-    q_buy_m, q_sell_m ∈ ℝ≥0  quantities purchased / sold (in grams)
+    f_r ∈ ℝ≥0               molar flow through reaction r
+    y_r ∈ {0, 1}            whether reaction r is activated
+    w_c ∈ {0, 1}            whether chemical c is targeted for sale
+    q_c^buy, q_c^sell ∈ ℝ≥0 grams of chemical c bought / sold
 
 Objective
 ---------
-    max  Σ_m  π_sell_m · q_sell_m  −  Σ_m  π_buy_m · q_buy_m
+    max  Σ_c π_c^sell · q_c^sell  −  Σ_c π_c^buy · q_c^buy
+                                  −  ρ_proc Σ_{r∈R_proc} η_r f_r Σ_{c∈P_r} π_c^sell · a_{c,r} W_c
+                                  −  ρ_comp Σ_{c∈C_comp} π_c^sell · q_c^sell
 
 Constraints
 -----------
-    Mass balance per molecule m:
-        q_buy_m + Σ_r (a_r,m · η_r · f_r  for m a PRODUCT of r)
-      = q_sell_m + Σ_r (a_r,m · f_r       for m a REACTANT of r)
+    Mass balance per chemical c:
+        q_c^buy + Σ_r (a_{c,r} · W_c · η_r · f_r  for c a PRODUCT of r)
+      = q_c^sell + Σ_r (a_{c,r} · W_c · f_r       for c a REACTANT of r)
 
     Flow activation bounds:
-        min_flow · y_r  ≤  f_r  ≤  max_flow · y_r
+        f_min · y_r  ≤  f_r  ≤  f_max · y_r
 
-    Sellable quantity bound (linearizes w_m · q_sell_m):
-        q_sell_m  ≤  M · w_m           where M = max_flow · max stoichiometric coefficient
+    Sellable quantity bound (linearizes w_c · q_c^sell):
+        q_c^sell  ≤  M · w_c           where M = B / min_c π_c^buy
 
     Budget:
-        Σ_m π_buy_m · q_buy_m  ≤  B
+        Σ_c π_c^buy · q_c^buy  ≤  B
 
-    Product cardinality (optional):
-        Σ_m w_m  ≤  max_products
+    Product cardinality (optional):  Σ_c w_c ≤ N_prod
+    Reaction cardinality (optional): Σ_r y_r ≤ N_rxn
 
 Mass balance is gram-coherent
 -----------------------------
-The stoichiometric coefficient `a_r,m` from MetaNetX/USPTO is **molar**
+The stoichiometric coefficient `a_{c,r}` from MetaNetX/USPTO is **molar**
 (e.g. "2" for the H₂O on either side of `2 H₂O → 2 H₂ + O₂`). The buy /
 sell quantities are in **grams** (multiplied by `price_per_gram` in the
-objective). To make `a · f` evaluate to grams of m, the model
-multiplies each coefficient by the participant's molecular weight
-(loaded from `data/processed/molecules_with_mw.parquet`) before
-constraints are emitted, so the mass balance enforces gram conservation
-end-to-end. `f_r` is therefore "mol of reaction extent" by construction
-— `(a_r,m · MW_m) · f_r` is grams of m on both sides of the equation.
+objective). To make `a · f` evaluate to grams of c, the model multiplies
+each coefficient by the chemical's molecular weight `W_c` (loaded from
+`data/processed/molecules_with_mw.parquet`) before constraints are
+emitted, so the mass balance enforces gram conservation end-to-end.
+`f_r` is therefore "mol of reaction extent" by construction —
+`(a_{c,r} · W_c) · f_r` is grams of c on both sides of the equation.
 
-`min_flow` / `max_flow` (default 1e-3 / 1000) are in mol-extent units;
-for typical chemistry MW=100-500 g/mol, max_flow=1000 gives 100-500 kg
-of throughput — well above any budget-realistic bound, so the budget
-constraint binds rather than max_flow.
+`f_min` / `f_max` (default 1e-3 / 1000) are in mol-extent units; for
+typical chemistry W_c=100-500 g/mol, f_max=1000 gives 100-500 kg of
+throughput — well above any budget-realistic bound, so the budget
+constraint binds rather than f_max.
 
-Reactions whose participants lack a usable MW (RDKit can't parse the
+Reactions whose participants lack a usable W_c (RDKit can't parse the
 SMILES, or the molecules table doesn't carry one) are dropped at
 model-build time with a tally logged. In practice this affects only
 abstract MetaNetX entries with no canonical_smiles (BIOMASS-class
@@ -120,21 +131,21 @@ def build_and_solve(
     if reactions.height == 0:
         return Solution("No reactions after filtering", 0.0, [], [], [])
 
-    # Reaction-level composition_covered → molecule-level: any product of a
+    # Reaction-level composition_covered → chemical-level: any product of a
     # composition-covered reaction is itself composition-covered for royalty.
     # Defensive: only runs when the column is present (license data attached).
     if "composition_covered" in reactions.columns:
-        comp_mol_ids: set[str] = set()
+        C_comp_ids: set[str] = set()
         for row in reactions.iter_rows(named=True):
             if row.get("composition_covered"):
                 for stoich in row["products"]:
-                    comp_mol_ids.add(stoich["mol_id"])
+                    C_comp_ids.add(stoich["mol_id"])
         molecules = molecules.with_columns(
-            pl.col("mol_id").is_in(list(comp_mol_ids)).alias("composition_covered")
+            pl.col("mol_id").is_in(list(C_comp_ids)).alias("composition_covered")
         )
 
-    # Universe of molecules is every mol_id referenced by a surviving reaction.
-    referenced: set[str] = set()
+    # Universe of chemicals C = every chemical id referenced by a surviving reaction.
+    C: set[str] = set()
     rxn_meta: list[dict[str, Any]] = []
     for row in reactions.iter_rows(named=True):
         rxn_id = row["rxn_id"]
@@ -148,8 +159,8 @@ def build_and_solve(
             (stoich["mol_id"], float(stoich["coefficient"])) for stoich in row["reactants"]
         ]
         products = [(stoich["mol_id"], float(stoich["coefficient"])) for stoich in row["products"]]
-        for mol_id, _ in reactants + products:
-            referenced.add(mol_id)
+        for c, _ in reactants + products:
+            C.add(c)
         rxn_meta.append(
             {
                 "rxn_id": rxn_id,
@@ -160,154 +171,150 @@ def build_and_solve(
             }
         )
 
-    # Mass-basis transform: rewrite each (mol_id, coef_mol) tuple to
-    # (mol_id, coef_mol * MW_m) so the mass balance is gram-coherent. Drops
-    # reactions where any participant lacks a usable MW (logging the tally).
-    # This is unconditional — the dimensionally-inconsistent legacy mode
-    # was removed; running the MILP without MW would silently allow the
-    # solver to violate mass conservation for MW-asymmetric reactions.
-    mw_lookup = _build_mw_lookup(molecules)
-    rxn_meta, dropped = _rescale_to_grams(rxn_meta, mw_lookup)
+    # Mass-basis transform: rewrite each (c, a_mol) tuple to (c, a_mol · W_c)
+    # so the mass balance is gram-coherent. Drops reactions where any
+    # participant lacks a usable W_c (logging the tally). This is
+    # unconditional — the dimensionally-inconsistent legacy mode was
+    # removed; running the MILP without W would silently allow the solver
+    # to violate mass conservation for W-asymmetric reactions.
+    W = _build_mw_lookup(molecules)
+    rxn_meta, dropped = _rescale_to_grams(rxn_meta, W)
     log.info(
-        "[mass_basis] kept=%d dropped=%d (missing MW for ≥1 participant)",
+        "[mass_basis] kept=%d dropped=%d (missing W_c for ≥1 participant)",
         len(rxn_meta),
         dropped,
     )
-    # Reactions may have been dropped — rebuild `referenced` from survivors.
-    referenced = {mid for m in rxn_meta for (mid, _) in m["reactants"] + m["products"]}
+    # Reactions may have been dropped — rebuild C from survivors.
+    C = {c for r in rxn_meta for (c, _) in r["reactants"] + r["products"]}
 
-    # Composition-covered molecule set (drives the composition royalty term).
-    composition_covered: set[str] = set()
+    # Composition-covered chemical set C_comp (drives the composition royalty term).
+    C_comp: set[str] = set()
     if "composition_covered" in molecules.columns:
-        for r in molecules.iter_rows(named=True):
-            if r.get("composition_covered"):
-                composition_covered.add(r["mol_id"])
+        for row in molecules.iter_rows(named=True):
+            if row.get("composition_covered"):
+                C_comp.add(row["mol_id"])
 
-    # Price lookup: molecule mol_id → (buy_price, sell_price).
-    price_lookup = _build_price_lookup(molecules, referenced, config)
+    # Price lookup: c → (π_c^buy, π_c^sell).
+    price_lookup = _build_price_lookup(molecules, C, config)
 
     # Build pulp problem.
     prob = pulp.LpProblem("AIchemy_profit", pulp.LpMaximize)
 
     # Variables
     f = {
-        m["rxn_id"]: pulp.LpVariable(
-            f"f_{_safe(m['rxn_id'])}",
+        r["rxn_id"]: pulp.LpVariable(
+            f"f_{_safe(r['rxn_id'])}",
             lowBound=0.0,
             upBound=config.max_flow,
         )
-        for m in rxn_meta
+        for r in rxn_meta
     }
     y = {
-        m["rxn_id"]: pulp.LpVariable(
-            f"y_{_safe(m['rxn_id'])}",
+        r["rxn_id"]: pulp.LpVariable(
+            f"y_{_safe(r['rxn_id'])}",
             cat=pulp.LpBinary,
         )
-        for m in rxn_meta
+        for r in rxn_meta
     }
-    q_buy = {
-        mol_id: pulp.LpVariable(f"qbuy_{_safe(mol_id)}", lowBound=0.0) for mol_id in referenced
-    }
+    q_buy = {c: pulp.LpVariable(f"qbuy_{_safe(c)}", lowBound=0.0) for c in C}
     forbidden_sell = set(config.forbidden_sell_molecules)
     q_sell = {
-        mol_id: pulp.LpVariable(
-            f"qsell_{_safe(mol_id)}",
+        c: pulp.LpVariable(
+            f"qsell_{_safe(c)}",
             lowBound=0.0,
             # Pin forbidden products at 0 by clamping the variable's upper bound.
             # Cheaper than an explicit equality constraint and makes the
             # forbid-list visible in the LP file.
-            upBound=0.0 if mol_id in forbidden_sell else None,
+            upBound=0.0 if c in forbidden_sell else None,
         )
-        for mol_id in referenced
+        for c in C
     }
-    w = {mol_id: pulp.LpVariable(f"w_{_safe(mol_id)}", cat=pulp.LpBinary) for mol_id in referenced}
+    w = {c: pulp.LpVariable(f"w_{_safe(c)}", cat=pulp.LpBinary) for c in C}
 
     # Objective: sell revenue − buy cost − process royalty − composition royalty.
     # Royalty terms are zero whenever (a) license data isn't attached to the
-    # input reactions/molecules, or (b) config.r_process / config.r_comp are 0.
-    revenue = pulp.lpSum(price_lookup[m][1] * q_sell[m] for m in referenced)
-    cost = pulp.lpSum(price_lookup[m][0] * q_buy[m] for m in referenced)
-    # Process royalty = r_process · revenue from this reaction's products.
-    # Per mol-extent of reaction r, grams of product m produced = coef_grams[m] · η_r,
-    # so revenue per extent = Σ price_sell[m] · coef_grams[m] · η_r. Coef_grams
-    # already incorporates the MW multiply from _rescale_to_grams above.
+    # input reactions/molecules, or (b) ρ_proc / ρ_comp are 0.
+    revenue = pulp.lpSum(price_lookup[c][1] * q_sell[c] for c in C)
+    cost = pulp.lpSum(price_lookup[c][0] * q_buy[c] for c in C)
+    # Process royalty = ρ_proc · revenue from this reaction's products. Per
+    # mol-extent of reaction r, grams of product c produced = a_{c,r}·W_c · η_r,
+    # so revenue per extent = Σ_c π_c^sell · a_{c,r}·W_c · η_r. The coefficients
+    # already incorporate the W_c multiply from _rescale_to_grams above.
     process_royalty = pulp.lpSum(
         config.r_process
-        * sum(price_lookup[mid][1] * coef for (mid, coef) in m["products"])
-        * m["yield_rate"]
-        * f[m["rxn_id"]]
-        for m in rxn_meta
-        if m["process_covered"]
+        * sum(price_lookup[c_id][1] * a for (c_id, a) in r["products"])
+        * r["yield_rate"]
+        * f[r["rxn_id"]]
+        for r in rxn_meta
+        if r["process_covered"]
     )
     composition_royalty = pulp.lpSum(
-        config.r_comp * price_lookup[m][1] * q_sell[m]
-        for m in referenced
-        if m in composition_covered
+        config.r_comp * price_lookup[c][1] * q_sell[c] for c in C if c in C_comp
     )
     prob += (revenue - cost - process_royalty - composition_royalty, "total_profit")
 
-    # Mass balance: for each molecule, supply = consumption.
+    # Mass balance: for each chemical c, supply = consumption.
     #
-    # The naive form (scan all rxn_meta inside the per-molecule loop) is
-    # O(M·R·P) — at full corpus that's ~1.3M × 365K × ~5 ≈ 5e12 comparisons
-    # and the model build dominates wall-clock (5+ minutes per cell). Pre-
-    # index participants once for O(M + R·P) total (~2 million ops), making
-    # the build run in seconds.
+    # The naive form (scan all rxn_meta inside the per-chemical loop) is
+    # O(|C|·|R|·P) — at full corpus that's ~1.3M × 365K × ~5 ≈ 5e12
+    # comparisons and the model build dominates wall-clock (5+ minutes per
+    # cell). Pre-index participants once for O(|C| + |R|·P) total (~2
+    # million ops), making the build run in seconds.
     producers: dict[str, list[tuple[str, float, float]]] = {}
     consumers: dict[str, list[tuple[str, float]]] = {}
-    for m in rxn_meta:
-        rxn_id = m["rxn_id"]
-        yld = m["yield_rate"]
-        for mid, coef in m["products"]:
-            producers.setdefault(mid, []).append((rxn_id, coef, yld))
-        for mid, coef in m["reactants"]:
-            consumers.setdefault(mid, []).append((rxn_id, coef))
+    for r in rxn_meta:
+        rxn_id = r["rxn_id"]
+        yld = r["yield_rate"]
+        for c_id, a in r["products"]:
+            producers.setdefault(c_id, []).append((rxn_id, a, yld))
+        for c_id, a in r["reactants"]:
+            consumers.setdefault(c_id, []).append((rxn_id, a))
 
-    for mol_id in referenced:
-        supply = q_buy[mol_id] + pulp.lpSum(
-            coef * yld * f[rxn_id] for (rxn_id, coef, yld) in producers.get(mol_id, [])
+    for c in C:
+        supply = q_buy[c] + pulp.lpSum(
+            a * yld * f[rxn_id] for (rxn_id, a, yld) in producers.get(c, [])
         )
-        consumption = q_sell[mol_id] + pulp.lpSum(
-            coef * f[rxn_id] for (rxn_id, coef) in consumers.get(mol_id, [])
+        consumption = q_sell[c] + pulp.lpSum(
+            a * f[rxn_id] for (rxn_id, a) in consumers.get(c, [])
         )
-        prob += supply == consumption, f"mass_balance_{_safe(mol_id)}"
+        prob += supply == consumption, f"mass_balance_{_safe(c)}"
 
     # Flow activation bounds
-    for m in rxn_meta:
-        rxn_id = m["rxn_id"]
+    for r in rxn_meta:
+        rxn_id = r["rxn_id"]
         prob += f[rxn_id] >= config.min_flow * y[rxn_id], f"flow_lb_{_safe(rxn_id)}"
         prob += f[rxn_id] <= config.max_flow * y[rxn_id], f"flow_ub_{_safe(rxn_id)}"
 
-    # Sellable-quantity bound (w_m switches sell_m on/off). After mass-
-    # basis, q_sell is in grams: budget/min_buy_price is the tightest
-    # valid bound, since Σ q_buy ≤ budget/min_buy_price and balanced
-    # reactions yield Σ q_sell ≤ Σ q_buy under η ≤ 1. The earlier
-    # `max_flow · 100` was in mol-extent units, not grams — silently
-    # clamping sales in high-MW or cheap-input regimes. Skip non-positive
-    # buy prices to avoid div-by-zero on degenerate data; if no positive
-    # price exists at all, fall back to a finite huge value.
+    # Sellable-quantity bound (w_c switches q_c^sell on/off). After mass-
+    # basis, q_sell is in grams: B / min π_c^buy is the tightest valid
+    # bound, since Σ q_buy ≤ B / min π_c^buy and balanced reactions yield
+    # Σ q_sell ≤ Σ q_buy under η ≤ 1. The earlier `max_flow · 100` was in
+    # mol-extent units, not grams — silently clamping sales in high-W or
+    # cheap-input regimes. Skip non-positive buy prices to avoid
+    # div-by-zero on degenerate data; if no positive price exists at all,
+    # fall back to a finite huge value.
     positive_buys = [bp for (bp, _) in price_lookup.values() if bp > 0]
     sell_big_m = config.budget / min(positive_buys) if positive_buys else config.budget * 1e6
-    for mol_id in referenced:
-        prob += q_sell[mol_id] <= sell_big_m * w[mol_id], f"sell_switch_{_safe(mol_id)}"
+    for c in C:
+        prob += q_sell[c] <= sell_big_m * w[c], f"sell_switch_{_safe(c)}"
 
     # Budget
     prob += (
-        pulp.lpSum(price_lookup[m][0] * q_buy[m] for m in referenced) <= config.budget,
+        pulp.lpSum(price_lookup[c][0] * q_buy[c] for c in C) <= config.budget,
         "budget",
     )
 
     # Product cardinality
     if config.max_products is not None:
         prob += (
-            pulp.lpSum(w[m] for m in referenced) <= config.max_products,
+            pulp.lpSum(w[c] for c in C) <= config.max_products,
             "product_cap",
         )
 
     # Reaction cardinality (synthesis-route length cap)
     if config.max_reactions is not None:
         prob += (
-            pulp.lpSum(y[m["rxn_id"]] for m in rxn_meta) <= config.max_reactions,
+            pulp.lpSum(y[r["rxn_id"]] for r in rxn_meta) <= config.max_reactions,
             "reaction_cap",
         )
 
@@ -320,23 +327,23 @@ def build_and_solve(
 
     # Extract activated reactions + non-trivial buys/sells
     activated: list[dict[str, Any]] = []
-    for m in rxn_meta:
-        val = pulp.value(f[m["rxn_id"]]) or 0.0
+    for r in rxn_meta:
+        val = pulp.value(f[r["rxn_id"]]) or 0.0
         if val > config.min_flow / 2:
             activated.append(
-                {"rxn_id": m["rxn_id"], "flow": float(val), "yield_rate": m["yield_rate"]}
+                {"rxn_id": r["rxn_id"], "flow": float(val), "yield_rate": r["yield_rate"]}
             )
 
     purchased: list[dict[str, Any]] = []
     sold: list[dict[str, Any]] = []
-    for mol_id in referenced:
-        bq = pulp.value(q_buy[mol_id]) or 0.0
-        sq = pulp.value(q_sell[mol_id]) or 0.0
-        buy_p, sell_p = price_lookup[mol_id]
+    for c in C:
+        bq = pulp.value(q_buy[c]) or 0.0
+        sq = pulp.value(q_sell[c]) or 0.0
+        buy_p, sell_p = price_lookup[c]
         if bq > 1e-6:
             purchased.append(
                 {
-                    "mol_id": mol_id,
+                    "mol_id": c,
                     "quantity": float(bq),
                     "price_per_gram": buy_p,
                     "cost": float(bq * buy_p),
@@ -345,7 +352,7 @@ def build_and_solve(
         if sq > 1e-6:
             sold.append(
                 {
-                    "mol_id": mol_id,
+                    "mol_id": c,
                     "quantity": float(sq),
                     "price_per_gram": sell_p,
                     "revenue": float(sq * sell_p),
@@ -363,25 +370,25 @@ def build_and_solve(
 
 def _build_price_lookup(
     molecules: pl.DataFrame,
-    referenced: set[str],
+    C: set[str],
     config: SolverConfig,
 ) -> dict[str, tuple[float, float]]:
-    """Build mol_id → (buy_price, sell_price) map.
+    """Build c → (π_c^buy, π_c^sell) map.
 
-    Priced molecules use ``price_per_gram`` for both buy and sell. Unpriced
-    molecules get a conservative pair derived from the empirical price
+    Priced chemicals use ``price_per_gram`` for both buy and sell. Unpriced
+    chemicals get a conservative pair derived from the empirical price
     distribution: max(known) for buy, min(known) for sell. This prevents
-    the solver from "discovering profit" on molecules whose true price is
+    the solver from "discovering profit" on chemicals whose true price is
     unknown — any pure-unpriced trade has objective ≤ 0. Falls back to the
     configured ``default_buy_price`` / ``default_sell_price`` only when no
-    priced molecule exists at all.
+    priced chemical exists at all.
     """
     by_id = {row["mol_id"]: row for row in molecules.iter_rows(named=True)}
 
     known_prices = [
-        float(by_id[m]["price_per_gram"])
-        for m in referenced
-        if by_id.get(m) and by_id[m].get("price_per_gram") is not None
+        float(by_id[c]["price_per_gram"])
+        for c in C
+        if by_id.get(c) and by_id[c].get("price_per_gram") is not None
     ]
     if known_prices:
         unpriced_buy = max(known_prices)
@@ -391,13 +398,13 @@ def _build_price_lookup(
         unpriced_sell = config.default_sell_price
 
     price_lookup: dict[str, tuple[float, float]] = {}
-    for mol_id in referenced:
-        row = by_id.get(mol_id)
+    for c in C:
+        row = by_id.get(c)
         if row and row.get("price_per_gram") is not None:
             p = float(row["price_per_gram"])
-            price_lookup[mol_id] = (p, p)
+            price_lookup[c] = (p, p)
         else:
-            price_lookup[mol_id] = (unpriced_buy, unpriced_sell)
+            price_lookup[c] = (unpriced_buy, unpriced_sell)
     return price_lookup
 
 
@@ -421,10 +428,10 @@ def _make_solver(config: SolverConfig) -> pulp.LpSolver:
 def _safe(name: str) -> str:
     """pulp variable names can't contain certain chars — sanitize.
 
-    Distinct multi-char replacements so chemically-distinct mol_ids that
+    Distinct multi-char replacements so chemically-distinct ids that
     differ only in disallowed chars (e.g., [H+] vs [H-]) don't collapse
     to the same name and trigger PuLP's "overlapping constraint names"
-    error when both appear in mass_balance_<mol_id> constraints.
+    error when both appear in mass_balance_<c> constraints.
     """
     return (
         name.replace(":", "_co_")
@@ -437,14 +444,14 @@ def _safe(name: str) -> str:
 
 
 def _build_mw_lookup(molecules: pl.DataFrame) -> dict[str, float | None]:
-    """Build a {mol_id: mol_weight} dict for the mass_basis rescale.
+    """Build a {c: W_c} dict for the mass-basis rescale.
 
     Prefers a precomputed `mol_weight` column (produced by
     `aichemy augment molecule-weights`). When that column isn't present
     — e.g., in unit tests that pass a tiny synthetic molecules table —
-    falls back to computing MW on the fly from `canonical_smiles` via
+    falls back to computing W_c on the fly from `canonical_smiles` via
     RDKit. Tests stay self-contained without forcing fixtures to carry
-    precomputed MW.
+    precomputed W_c.
     """
     if "mol_weight" in molecules.columns:
         return {row["mol_id"]: row["mol_weight"] for row in molecules.iter_rows(named=True)}
@@ -458,35 +465,35 @@ def _build_mw_lookup(molecules: pl.DataFrame) -> dict[str, float | None]:
 
 
 def _scale_side(
-    side: list[tuple[str, float]], mw: dict[str, float | None]
+    side: list[tuple[str, float]], W: dict[str, float | None]
 ) -> tuple[list[tuple[str, float]], bool]:
-    """Multiply each (mol_id, coef_mol) tuple's coef by MW[mol_id].
+    """Multiply each (c, a_mol) tuple's coefficient by W_c.
 
     Returns (rescaled_list, ok). `ok` is False if any participant lacks
-    a usable MW (None, NaN, or non-positive); the caller is expected to
+    a usable W_c (None, NaN, or non-positive); the caller is expected to
     drop the whole reaction in that case.
     """
     out: list[tuple[str, float]] = []
-    for mid, coef in side:
-        w = mw.get(mid)
-        if w is None or math.isnan(w) or w <= 0:
+    for c_id, a in side:
+        w_c = W.get(c_id)
+        if w_c is None or math.isnan(w_c) or w_c <= 0:
             return [], False
-        out.append((mid, coef * w))
+        out.append((c_id, a * w_c))
     return out, True
 
 
 def _rescale_to_grams(
-    rxn_meta: list[dict[str, Any]], mw: dict[str, float | None]
+    rxn_meta: list[dict[str, Any]], W: dict[str, float | None]
 ) -> tuple[list[dict[str, Any]], int]:
-    """Rewrite all reactant/product coefs by MW. Drop reactions where any
-    participant lacks a usable MW. Returns (kept_rxn_meta, n_dropped)."""
+    """Rewrite all reactant/product coefs by W_c. Drop reactions where any
+    participant lacks a usable W_c. Returns (kept_rxn_meta, n_dropped)."""
     kept: list[dict[str, Any]] = []
     dropped = 0
-    for m in rxn_meta:
-        scaled_r, ok_r = _scale_side(m["reactants"], mw)
-        scaled_p, ok_p = _scale_side(m["products"], mw)
-        if not (ok_r and ok_p):
+    for r in rxn_meta:
+        scaled_react, ok_react = _scale_side(r["reactants"], W)
+        scaled_prod, ok_prod = _scale_side(r["products"], W)
+        if not (ok_react and ok_prod):
             dropped += 1
             continue
-        kept.append({**m, "reactants": scaled_r, "products": scaled_p})
+        kept.append({**r, "reactants": scaled_react, "products": scaled_prod})
     return kept, dropped
