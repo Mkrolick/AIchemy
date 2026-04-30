@@ -55,6 +55,21 @@ def main() -> int:
         type=Path,
         default=Path("data/processed/writeup_artifacts"),
     )
+    p.add_argument(
+        "--patent-active-only",
+        action="store_true",
+        help=(
+            "Filter to reactions with patent_active=True. Forces every reaction "
+            "in the model to be license-bearing so royalty rates actually bind. "
+            "Without this, the optimum often picks patent-free routes and the "
+            "sweep is a flat plane."
+        ),
+    )
+    p.add_argument(
+        "--filename-suffix",
+        default="",
+        help="Suffix inserted before .png/.csv/.json so variants don't overwrite.",
+    )
     args = p.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -68,6 +83,14 @@ def main() -> int:
         f"[uspto-sweep] filtered to USPTO: {reactions.height:,} of {reactions_all.height:,}",
         flush=True,
     )
+    if args.patent_active_only:
+        before = reactions.height
+        reactions = reactions.filter(pl.col("patent_active"))
+        print(
+            f"[uspto-sweep] further filtered to patent_active=True: "
+            f"{reactions.height:,} of {before:,}",
+            flush=True,
+        )
 
     print(f"[uspto-sweep] loading {args.molecules}", flush=True)
     molecules = pl.read_parquet(args.molecules)
@@ -106,7 +129,8 @@ def main() -> int:
 
     total_wall = time.monotonic() - started
     df = pl.DataFrame(rows)
-    df.write_csv(args.out_dir / "uspto_license_sweep_results.csv")
+    suffix = args.filename_suffix
+    df.write_csv(args.out_dir / f"uspto_license_sweep_results{suffix}.csv")
 
     # --- 4x4 heatmap ---
     n = len(rates)
@@ -143,7 +167,7 @@ def main() -> int:
                 fontsize=8,
             )
     fig.tight_layout()
-    grid_path = args.out_dir / "uspto_license_sweep_grid.png"
+    grid_path = args.out_dir / f"uspto_license_sweep_grid{suffix}.png"
     fig.savefig(grid_path, dpi=160)
     plt.close(fig)
     print(f"\n[uspto-sweep] wrote {grid_path}", flush=True)
@@ -166,7 +190,10 @@ def main() -> int:
         "max_reactions": args.max_reactions,
         "timestamp_utc": datetime.now(UTC).isoformat(),
     }
-    (args.out_dir / "uspto_license_sweep_summary.json").write_text(json.dumps(summary, indent=2))
+    summary["patent_active_only"] = bool(args.patent_active_only)
+    (args.out_dir / f"uspto_license_sweep_summary{suffix}.json").write_text(
+        json.dumps(summary, indent=2)
+    )
 
     print(
         f"[uspto-sweep] avg cell wall = {avg_uspto_secs:.1f}s on {uspto_n:,} USPTO rxns; "
