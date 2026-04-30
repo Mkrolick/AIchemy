@@ -66,6 +66,16 @@ def main() -> int:
         ),
     )
     p.add_argument(
+        "--licensed-sales-only",
+        action="store_true",
+        help=(
+            "Forbid selling any product that isn't composition_covered. Forces "
+            "the composition-royalty term to bind on the optimal solution; "
+            "without this, the optimum often produces a product nobody patented "
+            "and r_comp has zero effect."
+        ),
+    )
+    p.add_argument(
         "--filename-suffix",
         default="",
         help="Suffix inserted before .png/.csv/.json so variants don't overwrite.",
@@ -95,6 +105,31 @@ def main() -> int:
     print(f"[uspto-sweep] loading {args.molecules}", flush=True)
     molecules = pl.read_parquet(args.molecules)
 
+    # Build the set of mol_ids the optimizer is allowed to sell. By default
+    # any referenced molecule is sellable; --licensed-sales-only restricts to
+    # composition_covered molecules (= products of any composition_covered
+    # reaction in the active subset), forbidding every other product.
+    forbidden_sell: list[str] = []
+    if args.licensed_sales_only:
+        comp_mol_ids: set[str] = set()
+        for row in reactions.iter_rows(named=True):
+            if row.get("composition_covered"):
+                for prod in row["products"]:
+                    comp_mol_ids.add(prod["mol_id"])
+        # Any referenced molecule NOT in comp_mol_ids must be forbidden.
+        referenced: set[str] = set()
+        for row in reactions.iter_rows(named=True):
+            for side in ("reactants", "products"):
+                for p in row[side]:
+                    referenced.add(p["mol_id"])
+        forbidden_sell = sorted(referenced - comp_mol_ids)
+        print(
+            f"[uspto-sweep] composition_covered molecules: {len(comp_mol_ids):,} "
+            f"of {len(referenced):,} referenced — forbidding {len(forbidden_sell):,} "
+            f"non-licensed products from sale",
+            flush=True,
+        )
+
     rows = []
     started = time.monotonic()
     n_cells = len(rates) * len(rates)
@@ -108,6 +143,7 @@ def main() -> int:
                 max_reactions=args.max_reactions,
                 r_process=rp,
                 r_comp=rc,
+                forbidden_sell_molecules=forbidden_sell,
             )
             sol = build_and_solve(reactions, molecules, cfg)
             wall = time.monotonic() - t0
@@ -191,6 +227,8 @@ def main() -> int:
         "timestamp_utc": datetime.now(UTC).isoformat(),
     }
     summary["patent_active_only"] = bool(args.patent_active_only)
+    summary["licensed_sales_only"] = bool(args.licensed_sales_only)
+    summary["n_forbidden_products"] = len(forbidden_sell)
     (args.out_dir / f"uspto_license_sweep_summary{suffix}.json").write_text(
         json.dumps(summary, indent=2)
     )
