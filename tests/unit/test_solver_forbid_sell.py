@@ -30,9 +30,12 @@ def _fixture():
             "composition_covered": [False, False],
         }
     )
+    # mol_weight=1 everywhere → mass-balance reduces to the legacy unit-coef
+    # regime so existing assertions about which products get sold still hold.
     molecules = pl.DataFrame(
         {
             "mol_id": ["A", "C", "D"],
+            "mol_weight": [1.0, 1.0, 1.0],
             "price_per_gram": [1.0, 10.0, 5.0],
         }
     )

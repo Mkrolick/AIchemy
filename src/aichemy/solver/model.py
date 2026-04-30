@@ -31,29 +31,29 @@ Constraints
     Product cardinality (optional):
         Σ_m w_m  ≤  max_products
 
-Mass-balance basis
-------------------
+Mass balance is gram-coherent
+-----------------------------
 The stoichiometric coefficient `a_r,m` from MetaNetX/USPTO is **molar**
 (e.g. "2" for the H₂O on either side of `2 H₂O → 2 H₂ + O₂`). The buy /
 sell quantities are in **grams** (multiplied by `price_per_gram` in the
-objective). Treating `a_r,m · f_r` as grams is therefore only correct
-when participants of a given reaction share molecular weight — for
-asymmetric reactions the equation overcounts/undercounts mass by the
-MW ratio.
+objective). To make `a · f` evaluate to grams of m, the model
+multiplies each coefficient by the participant's molecular weight
+(loaded from `data/processed/molecules_with_mw.parquet`) before
+constraints are emitted, so the mass balance enforces gram conservation
+end-to-end. `f_r` is therefore "mol of reaction extent" by construction
+— `(a_r,m · MW_m) · f_r` is grams of m on both sides of the equation.
 
-`SolverConfig.mass_basis` (CLI `--mass-basis`) addresses this by
-multiplying each coefficient by the participant's MW (loaded from
-`data/processed/molecules_with_mw.parquet`) before constraints are
-emitted. Under that mode `f_r` becomes "mol of reaction extent" by
-construction, since `(a_r,m · MW_m) · f_r` evaluates to grams of m.
-`min_flow` / `max_flow` are then in mol-extent units (kept numerically
-at 1e-3 / 1000 because for typical chemistry MW=100-500 g/mol,
-max_flow=1000 still gives 100-500 kg of throughput — well above any
-budget-realistic bound). Reactions whose participants lack a usable MW
-are dropped at model-build time with a tally logged.
+`min_flow` / `max_flow` (default 1e-3 / 1000) are in mol-extent units;
+for typical chemistry MW=100-500 g/mol, max_flow=1000 gives 100-500 kg
+of throughput — well above any budget-realistic bound, so the budget
+constraint binds rather than max_flow.
 
-Default `mass_basis=False` preserves the (dimensionally inconsistent
-but stable) prior behavior for regression baselines.
+Reactions whose participants lack a usable MW (RDKit can't parse the
+SMILES, or the molecules table doesn't carry one) are dropped at
+model-build time with a tally logged. In practice this affects only
+abstract MetaNetX entries with no canonical_smiles (BIOMASS-class
+sinks, polymer-pseudo-metabolites) — never any rdkit_balanced reaction
+on the curated full-corpus dataset.
 """
 
 from __future__ import annotations
@@ -155,20 +155,21 @@ def build_and_solve(
             }
         )
 
-    # Mass-basis transform (gated by config.mass_basis). Rewrites each
-    # (mol_id, coef_mol) tuple to (mol_id, coef_mol * MW_m) so the mass
-    # balance is gram-coherent end-to-end; drops reactions where any
-    # participant lacks a usable MW (logging the tally).
-    if config.mass_basis:
-        mw_lookup = _build_mw_lookup(molecules)
-        rxn_meta, dropped = _rescale_to_grams(rxn_meta, mw_lookup)
-        log.info(
-            "[mass_basis] kept=%d dropped=%d (missing MW for ≥1 participant)",
-            len(rxn_meta),
-            dropped,
-        )
-        # Reactions may have been dropped — rebuild `referenced` from survivors.
-        referenced = {mid for m in rxn_meta for (mid, _) in m["reactants"] + m["products"]}
+    # Mass-basis transform: rewrite each (mol_id, coef_mol) tuple to
+    # (mol_id, coef_mol * MW_m) so the mass balance is gram-coherent. Drops
+    # reactions where any participant lacks a usable MW (logging the tally).
+    # This is unconditional — the dimensionally-inconsistent legacy mode
+    # was removed; running the MILP without MW would silently allow the
+    # solver to violate mass conservation for MW-asymmetric reactions.
+    mw_lookup = _build_mw_lookup(molecules)
+    rxn_meta, dropped = _rescale_to_grams(rxn_meta, mw_lookup)
+    log.info(
+        "[mass_basis] kept=%d dropped=%d (missing MW for ≥1 participant)",
+        len(rxn_meta),
+        dropped,
+    )
+    # Reactions may have been dropped — rebuild `referenced` from survivors.
+    referenced = {mid for m in rxn_meta for (mid, _) in m["reactants"] + m["products"]}
 
     # Composition-covered molecule set (drives the composition royalty term).
     composition_covered: set[str] = set()
@@ -221,9 +222,13 @@ def build_and_solve(
     # input reactions/molecules, or (b) config.r_process / config.r_comp are 0.
     revenue = pulp.lpSum(price_lookup[m][1] * q_sell[m] for m in referenced)
     cost = pulp.lpSum(price_lookup[m][0] * q_buy[m] for m in referenced)
+    # Process royalty = r_process · revenue from this reaction's products.
+    # Per mol-extent of reaction r, grams of product m produced = coef_grams[m] · η_r,
+    # so revenue per extent = Σ price_sell[m] · coef_grams[m] · η_r. Coef_grams
+    # already incorporates the MW multiply from _rescale_to_grams above.
     process_royalty = pulp.lpSum(
         config.r_process
-        * sum(price_lookup[mid][1] for (mid, _) in m["products"])
+        * sum(price_lookup[mid][1] * coef for (mid, coef) in m["products"])
         * m["yield_rate"]
         * f[m["rxn_id"]]
         for m in rxn_meta

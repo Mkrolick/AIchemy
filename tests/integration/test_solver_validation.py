@@ -207,63 +207,23 @@ def test_solver_is_deterministic() -> None:
     assert len(s1.activated_reactions) == len(s2.activated_reactions)
 
 
-# ---------------- mass_basis (MW-aware mass balance) ----------------------
+# ---------------- MW-aware mass balance ----------------------
 
 
-def test_mass_basis_passes_through_when_mw_symmetric() -> None:
-    """When all participants share canonical_smiles (and thus MW), the mass-
-    basis transform multiplies both sides of the balance by the same constant
-    and the optimum is unchanged.
-
-    Uses the same hand-solved A → B linear network ($900 closed-form) but
-    flips ``mass_basis=True``. With canonical_smiles="C" everywhere (MW=16.04),
-    coef·MW is 16.04 on both sides — cancels out cleanly.
-    """
-    reactions = _reactions(
-        [
-            {
-                "rxn_id": "r1",
-                "reactants": [{"mol_id": "A", "coefficient": 1.0}],
-                "products": [{"mol_id": "B", "coefficient": 1.0}],
-                "yield_rate": 1.0,
-            },
-        ]
-    )
-    molecules = _molecules({"A": 1.0, "B": 10.0})
-    cfg = SolverConfig(budget=100.0, max_flow=10_000.0, mass_basis=True)
-    sol = build_and_solve(reactions, molecules, cfg)
-
-    assert sol.status == "Optimal"
-    # MW-symmetric → identical optimum to mass_basis=False case ($900).
-    assert sol.objective_value == pytest.approx(900.0, abs=1e-3)
-    purchased_a = next((p for p in sol.purchased_molecules if p["mol_id"] == "A"), None)
-    sold_b = next((s for s in sol.sold_molecules if s["mol_id"] == "B"), None)
-    assert purchased_a is not None and purchased_a["quantity"] == pytest.approx(100.0, abs=1e-3)
-    assert sold_b is not None and sold_b["quantity"] == pytest.approx(100.0, abs=1e-3)
-
-
-def test_mass_basis_respects_mw_asymmetry() -> None:
-    """`2 H₂O → 2 H₂ + O₂` — a textbook MW-asymmetric reaction.
+def test_mass_balance_respects_mw_asymmetry() -> None:
+    """`2 H₂O → 2 H₂ + O₂` — textbook MW-asymmetric reaction.
 
     Stoich (mol): 2 H₂O on the left, 2 H₂ + 1 O₂ on the right.
     MW (g/mol):   18.02   on the left, 2.02 + 32.00 on the right.
     Mass balance in grams works out: 2·18.02 = 2·2.02 + 1·32.00 (36.04 = 36.04).
 
-    Setup: budget=$36 (enough to buy exactly 36g of H₂O at $1/g, i.e. 2 mol-extents).
-    Both H₂ ($10/g) and O₂ ($10/g) are sellable.
+    Setup: budget=$36 (enough to buy exactly 36g of H₂O at $1/g, i.e.
+    2 mol-extents). Both H₂ ($10/g) and O₂ ($10/g) sellable.
 
-    Under mass_basis=True with yield=1.0:
-      f = mol-extent. Each unit of f consumes 2·18.02 g of H₂O
-      and produces 2·2.02 g H₂ + 1·32.00 g O₂.
-      36 g H₂O → 36 g of products → revenue 36×$10 = $360 → profit = $360 − $36 = $324.
-
-    Under mass_basis=False (the dimensionally-broken baseline) on the same
-    fixture, the model treats coef·f as grams identically on both sides:
-      f units of "stuff": 2·f g of H₂O consumed = 2·f g H₂ + 1·f g O₂ produced.
-      With budget=$36 → f=18 (since 2·18=36g of H₂O at $1/g).
-      Revenue = (2·18 + 1·18)·$10 = $540 → profit = $504.
-    The two regimes therefore give materially different objectives, which
-    is exactly the bug the mass_basis fix corrects.
+    Expected with the always-on mass-basis math:
+      f = mol-extent. One f consumes 2·18.02 g of H₂O and produces
+      2·2.02 g H₂ + 1·32.00 g O₂. 36 g H₂O → 36 g of products →
+      revenue 36×$10 = $360 → profit ≈ $324.
     """
     reactions = _reactions(
         [
@@ -278,8 +238,6 @@ def test_mass_basis_respects_mw_asymmetry() -> None:
             },
         ]
     )
-    # Per-mol_id canonical_smiles so the auto MW lookup gives the right
-    # values: H₂O=18.02, H₂=2.02, O₂=32.00.
     molecules = pl.DataFrame(
         [
             {
@@ -310,35 +268,20 @@ def test_mass_basis_respects_mw_asymmetry() -> None:
         schema_overrides={"price_per_gram": pl.Float64},
     )
 
-    sol_mass = build_and_solve(
-        reactions,
-        molecules,
-        SolverConfig(budget=36.0, max_flow=10_000.0, mass_basis=True),
-    )
-    sol_legacy = build_and_solve(
-        reactions,
-        molecules,
-        SolverConfig(budget=36.0, max_flow=10_000.0, mass_basis=False),
-    )
+    sol = build_and_solve(reactions, molecules, SolverConfig(budget=36.0, max_flow=10_000.0))
 
-    # mass_basis=True: profit ≈ $324 (mass-conservative result).
-    assert sol_mass.status == "Optimal"
-    assert sol_mass.objective_value == pytest.approx(324.0, abs=1.0)
+    assert sol.status == "Optimal"
+    assert sol.objective_value == pytest.approx(324.0, abs=1.0)
 
-    # Verify gram-level mass conservation: total mass purchased ≈ total mass sold.
-    grams_in = sum(p["quantity"] for p in sol_mass.purchased_molecules)
-    grams_out = sum(s["quantity"] for s in sol_mass.sold_molecules)
+    # Verify gram-level mass conservation across the whole solution.
+    grams_in = sum(p["quantity"] for p in sol.purchased_molecules)
+    grams_out = sum(s["quantity"] for s in sol.sold_molecules)
     assert grams_in == pytest.approx(grams_out, rel=1e-3)
 
-    # The two regimes must give different objectives — proves mass_basis
-    # actually affects the math (not silently a no-op).
-    assert abs(sol_mass.objective_value - sol_legacy.objective_value) > 10.0
 
-
-def test_mass_basis_drops_reactions_with_unparseable_smiles() -> None:
-    """A molecule whose SMILES can't be parsed (no valid MW) → reactions
-    referencing it are dropped under mass_basis=True. The remaining reaction
-    network still solves correctly."""
+def test_drops_reactions_with_unparseable_smiles() -> None:
+    """A molecule whose SMILES can't be parsed → reactions referencing it
+    are dropped at model-build time. The remaining network solves cleanly."""
     reactions = _reactions(
         [
             {
@@ -359,7 +302,7 @@ def test_mass_basis_drops_reactions_with_unparseable_smiles() -> None:
         [
             {
                 "mol_id": "A",
-                "canonical_smiles": "CCO",  # ethanol, parses fine
+                "canonical_smiles": "CCO",  # ethanol
                 "inchi_key": "KEY_A",
                 "carbon_count": 2,
                 "price_per_gram": 1.0,
@@ -367,7 +310,7 @@ def test_mass_basis_drops_reactions_with_unparseable_smiles() -> None:
             },
             {
                 "mol_id": "B",
-                "canonical_smiles": "CC(=O)O",  # acetic acid, parses fine
+                "canonical_smiles": "CC(=O)O",  # acetic acid
                 "inchi_key": "KEY_B",
                 "carbon_count": 2,
                 "price_per_gram": 10.0,
@@ -385,18 +328,11 @@ def test_mass_basis_drops_reactions_with_unparseable_smiles() -> None:
         schema_overrides={"price_per_gram": pl.Float64},
     )
 
-    sol = build_and_solve(
-        reactions,
-        molecules,
-        SolverConfig(budget=100.0, max_flow=10_000.0, mass_basis=True),
-    )
+    sol = build_and_solve(reactions, molecules, SolverConfig(budget=100.0, max_flow=10_000.0))
 
     assert sol.status == "Optimal"
-    # Only the "good" reaction should be activated; "bad" must be dropped
-    # because MYSTERY has no valid MW.
     activated_ids = {r["rxn_id"] for r in sol.activated_reactions}
     assert "good" in activated_ids
     assert "bad" not in activated_ids
-    # MYSTERY is not in the surviving graph, so cannot be sold.
     sold_ids = {s["mol_id"] for s in sol.sold_molecules}
     assert "MYSTERY" not in sold_ids
