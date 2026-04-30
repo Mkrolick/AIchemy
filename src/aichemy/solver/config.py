@@ -62,6 +62,24 @@ class SolverConfig(BaseModel):
     # the optimizer to find an alternate revenue path.
     forbidden_sell_molecules: list[str] = Field(default_factory=list)
 
+    # When True, multiply each stoichiometric coefficient by the
+    # participant's molecular weight (g/mol) before building the mass-
+    # balance constraint. This makes coef·f represent grams of m on both
+    # sides of the equation (matching q_buy / q_sell, which are gram-
+    # denominated via price_per_gram). Under mass_basis=True, f[r]
+    # becomes "mol of reaction extent" by construction; min_flow / max_flow
+    # are likewise in mol-extents (kept numerically identical because for
+    # typical chemistry MW=100-500 g/mol, max_flow=1000 still gives 100-500
+    # kg of throughput — well above the budget-realistic bound).
+    #
+    # Default False preserves pre-fix behavior (which is dimensionally
+    # inconsistent for MW-asymmetric reactions like 2 H2O -> 2 H2 + O2,
+    # but stable as a regression baseline). The MILP solver loads MW from
+    # data/processed/molecules_with_mw.parquet (produced by
+    # `aichemy augment molecule-weights`); reactions with any participant
+    # missing a usable MW are dropped with a tally logged.
+    mass_basis: bool = False
+
     # Backend: "cbc" (bundled with pulp), "gurobi" (requires license).
     backend: Literal["cbc", "gurobi"] = "cbc"
 

@@ -10,6 +10,7 @@ from aichemy.preprocessing import export as export_module
 from aichemy.preprocessing import select as select_module
 from aichemy.preprocessing.augment import directionality as directionality_module
 from aichemy.preprocessing.augment import licenses as licenses_module
+from aichemy.preprocessing.augment import molecule_weights as molecule_weights_module
 from aichemy.preprocessing.augment import prices as prices_module
 from aichemy.preprocessing.augment import (
     prices_scrapers as _prices_scrapers,  # noqa: F401 — side effect: registers scrapers
@@ -549,6 +550,44 @@ def augment_metanetx_yields(
     typer.echo(
         f"[augment metanetx-yields] wrote {out.height} rows "
         f"({n_thermo} replaced via ΔG) → {output_path}"
+    )
+
+
+@augment_app.command("molecule-weights")
+def augment_molecule_weights(
+    config: Path = ConfigOpt,
+    override: list[Path] = OverrideOpt,
+) -> None:
+    """Add a `mol_weight` (g/mol) column derived from canonical_smiles.
+
+    Reads the post-export molecules table and writes a sibling file
+    with an added `mol_weight` column. Consumed by the MILP solver
+    under `--mass-basis` to make the mass-balance constraint
+    dimensionally consistent in grams (multiplies stoich coefficients
+    by participant MW).
+
+    SMILES that fail RDKit parsing produce a null `mol_weight`;
+    downstream the solver drops reactions whose participants lack MW.
+    """
+    cfg = _load(config, override)
+    input_path = processed_path(cfg, "molecules.parquet")
+    output_path = processed_path(cfg, "molecules_with_mw.parquet")
+
+    if not input_path.exists():
+        write_empty_molecules(output_path)
+        typer.echo(
+            f"[augment molecule-weights] upstream {input_path} missing; wrote empty parquet."
+        )
+        return
+
+    df = read_molecules(input_path)
+    out = molecule_weights_module.augment_with_mw(df)
+    write_molecules(out, output_path)
+    n_with_mw = out.filter(pl.col("mol_weight").is_not_null()).height
+    pct = 100.0 * n_with_mw / out.height if out.height else 0.0
+    typer.echo(
+        f"[augment molecule-weights] wrote {out.height} rows "
+        f"({n_with_mw} with valid MW, {pct:.1f}%) → {output_path}"
     )
 
 

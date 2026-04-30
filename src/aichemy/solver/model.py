@@ -4,10 +4,10 @@ Follows the formulation from `proposal.md`:
 
 Decision variables
 ------------------
-    f_r ∈ ℝ≥0         molar flow through reaction r
+    f_r ∈ ℝ≥0         flow through reaction r (see "Mass-balance basis" below)
     y_r ∈ {0, 1}      whether reaction r is activated
     w_m ∈ {0, 1}      whether molecule m is targeted for sale
-    q_buy_m, q_sell_m ∈ ℝ≥0  quantities purchased / sold
+    q_buy_m, q_sell_m ∈ ℝ≥0  quantities purchased / sold (in grams)
 
 Objective
 ---------
@@ -30,11 +30,36 @@ Constraints
 
     Product cardinality (optional):
         Σ_m w_m  ≤  max_products
+
+Mass-balance basis
+------------------
+The stoichiometric coefficient `a_r,m` from MetaNetX/USPTO is **molar**
+(e.g. "2" for the H₂O on either side of `2 H₂O → 2 H₂ + O₂`). The buy /
+sell quantities are in **grams** (multiplied by `price_per_gram` in the
+objective). Treating `a_r,m · f_r` as grams is therefore only correct
+when participants of a given reaction share molecular weight — for
+asymmetric reactions the equation overcounts/undercounts mass by the
+MW ratio.
+
+`SolverConfig.mass_basis` (CLI `--mass-basis`) addresses this by
+multiplying each coefficient by the participant's MW (loaded from
+`data/processed/molecules_with_mw.parquet`) before constraints are
+emitted. Under that mode `f_r` becomes "mol of reaction extent" by
+construction, since `(a_r,m · MW_m) · f_r` evaluates to grams of m.
+`min_flow` / `max_flow` are then in mol-extent units (kept numerically
+at 1e-3 / 1000 because for typical chemistry MW=100-500 g/mol,
+max_flow=1000 still gives 100-500 kg of throughput — well above any
+budget-realistic bound). Reactions whose participants lack a usable MW
+are dropped at model-build time with a tally logged.
+
+Default `mass_basis=False` preserves the (dimensionally inconsistent
+but stable) prior behavior for regression baselines.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -129,6 +154,21 @@ def build_and_solve(
                 "process_covered": bool(row.get("process_covered") or False),
             }
         )
+
+    # Mass-basis transform (gated by config.mass_basis). Rewrites each
+    # (mol_id, coef_mol) tuple to (mol_id, coef_mol * MW_m) so the mass
+    # balance is gram-coherent end-to-end; drops reactions where any
+    # participant lacks a usable MW (logging the tally).
+    if config.mass_basis:
+        mw_lookup = _build_mw_lookup(molecules)
+        rxn_meta, dropped = _rescale_to_grams(rxn_meta, mw_lookup)
+        log.info(
+            "[mass_basis] kept=%d dropped=%d (missing MW for ≥1 participant)",
+            len(rxn_meta),
+            dropped,
+        )
+        # Reactions may have been dropped — rebuild `referenced` from survivors.
+        referenced = {mid for m in rxn_meta for (mid, _) in m["reactants"] + m["products"]}
 
     # Composition-covered molecule set (drives the composition royalty term).
     composition_covered: set[str] = set()
@@ -376,3 +416,59 @@ def _safe(name: str) -> str:
         .replace(".", "_dt_")
         .replace("@", "_at_")
     )
+
+
+def _build_mw_lookup(molecules: pl.DataFrame) -> dict[str, float | None]:
+    """Build a {mol_id: mol_weight} dict for the mass_basis rescale.
+
+    Prefers a precomputed `mol_weight` column (produced by
+    `aichemy augment molecule-weights`). When that column isn't present
+    — e.g., in unit tests that pass a tiny synthetic molecules table —
+    falls back to computing MW on the fly from `canonical_smiles` via
+    RDKit. Tests stay self-contained without forcing fixtures to carry
+    precomputed MW.
+    """
+    if "mol_weight" in molecules.columns:
+        return {row["mol_id"]: row["mol_weight"] for row in molecules.iter_rows(named=True)}
+    if "canonical_smiles" not in molecules.columns:
+        return {}
+    # Lazy import — only paid when fixtures lack mol_weight.
+    from aichemy.preprocessing.augment.molecule_weights import augment_with_mw
+
+    augmented = augment_with_mw(molecules.select(["mol_id", "canonical_smiles"]))
+    return {row["mol_id"]: row["mol_weight"] for row in augmented.iter_rows(named=True)}
+
+
+def _scale_side(
+    side: list[tuple[str, float]], mw: dict[str, float | None]
+) -> tuple[list[tuple[str, float]], bool]:
+    """Multiply each (mol_id, coef_mol) tuple's coef by MW[mol_id].
+
+    Returns (rescaled_list, ok). `ok` is False if any participant lacks
+    a usable MW (None, NaN, or non-positive); the caller is expected to
+    drop the whole reaction in that case.
+    """
+    out: list[tuple[str, float]] = []
+    for mid, coef in side:
+        w = mw.get(mid)
+        if w is None or math.isnan(w) or w <= 0:
+            return [], False
+        out.append((mid, coef * w))
+    return out, True
+
+
+def _rescale_to_grams(
+    rxn_meta: list[dict[str, Any]], mw: dict[str, float | None]
+) -> tuple[list[dict[str, Any]], int]:
+    """Rewrite all reactant/product coefs by MW. Drop reactions where any
+    participant lacks a usable MW. Returns (kept_rxn_meta, n_dropped)."""
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    for m in rxn_meta:
+        scaled_r, ok_r = _scale_side(m["reactants"], mw)
+        scaled_p, ok_p = _scale_side(m["products"], mw)
+        if not (ok_r and ok_p):
+            dropped += 1
+            continue
+        kept.append({**m, "reactants": scaled_r, "products": scaled_p})
+    return kept, dropped
