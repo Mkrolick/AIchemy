@@ -195,3 +195,12 @@ stages:
       - data/processed/reactions.parquet
     outs:
       - data/processed/reactions_thermo_yields.parquet
+
+  augment_molecule_weights:
+    cmd: uv run aichemy augment molecule-weights --config configs/default.yaml
+    deps:
+      - configs/default.yaml
+      - src/aichemy/preprocessing/augment/molecule_weights.py
+      - data/processed/molecules.parquet
+    outs:
+      - data/processed/molecules_with_mw.parquet

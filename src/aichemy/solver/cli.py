@@ -68,6 +68,16 @@ _SweepOutOpt = typer.Option(
     "--out",
     help="Output directory.",
 )
+_MassBasisOpt = typer.Option(
+    False,
+    "--mass-basis",
+    help=(
+        "Multiply stoich coefficients by participant MW so the mass-balance "
+        "constraint is dimensionally consistent in grams (f then becomes mol "
+        "of reaction extent). Reads molecules_with_mw.parquet — run "
+        "`aichemy augment molecule-weights` first if it's missing."
+    ),
+)
 
 
 @solver_app.command("run")
@@ -78,6 +88,7 @@ def solve(
     max_products: int | None = _MaxProductsOpt,
     max_reactions: int | None = _MaxReactionsOpt,
     forbid_sell: str = _ForbidSellOpt,
+    mass_basis: bool = _MassBasisOpt,
     backend: str = _BackendOpt,
     verbose: bool = _VerboseOpt,
     output: Path | None = _OutputOpt,
@@ -91,6 +102,7 @@ def solve(
         max_products=max_products,
         max_reactions=max_reactions,
         forbidden_sell_molecules=forbidden,
+        mass_basis=mass_basis,
         backend=backend,  # type: ignore[arg-type]
         verbose=verbose,
         output_path=output or processed_path(cfg, "solution.json"),
@@ -98,7 +110,17 @@ def solve(
     )
 
     reactions = read_reactions(processed_path(cfg, "reactions.parquet"))
-    molecules = read_molecules(processed_path(cfg, "molecules.parquet"))
+    molecules_path = (
+        processed_path(cfg, "molecules_with_mw.parquet")
+        if mass_basis
+        else processed_path(cfg, "molecules.parquet")
+    )
+    if mass_basis and not molecules_path.exists():
+        raise typer.BadParameter(
+            f"--mass-basis requires {molecules_path}; "
+            "run `uv run aichemy augment molecule-weights` first."
+        )
+    molecules = read_molecules(molecules_path)
 
     typer.echo(f"[solve] Loaded {reactions.height} reactions, {molecules.height} molecules.")
 
@@ -166,6 +188,7 @@ def sweep(
     r_process: str = _RProcessOpt,
     r_comp: str = _RCompOpt,
     out: Path = _SweepOutOpt,
+    mass_basis: bool = _MassBasisOpt,
     backend: str = _BackendOpt,
     verbose: bool = _VerboseOpt,
     balance_filter: str = _BalanceFilterOpt,
@@ -173,6 +196,7 @@ def sweep(
     """Sweep the (r_process, r_comp) grid; write per-cell solutions + summary parquet."""
     cfg = load_config(config, override)
     base_cfg = SolverConfig(
+        mass_basis=mass_basis,
         backend=backend,  # type: ignore[arg-type]
         verbose=verbose,
         output_path=processed_path(cfg, "solution.json"),
@@ -180,7 +204,17 @@ def sweep(
     )
 
     reactions = read_reactions(processed_path(cfg, "reactions.parquet"))
-    molecules = read_molecules(processed_path(cfg, "molecules.parquet"))
+    molecules_path = (
+        processed_path(cfg, "molecules_with_mw.parquet")
+        if mass_basis
+        else processed_path(cfg, "molecules.parquet")
+    )
+    if mass_basis and not molecules_path.exists():
+        raise typer.BadParameter(
+            f"--mass-basis requires {molecules_path}; "
+            "run `uv run aichemy augment molecule-weights` first."
+        )
+    molecules = read_molecules(molecules_path)
 
     rp_grid = [float(x) for x in r_process.split(",")]
     rc_grid = [float(x) for x in r_comp.split(",")]
