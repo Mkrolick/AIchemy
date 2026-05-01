@@ -91,8 +91,13 @@ def plot_profit_vs_rank(
             )
 
     ax.set_xlabel("Solve rank")
-    ax.set_ylabel("Profit (USD)")
-    ax.set_yscale("log")
+    ax.set_ylabel("Profit (USD, millions)")
+    # Linear y in millions: profits span ~16x on this corpus, log-scale
+    # compresses that into one decade and the curve looks flat.
+    from matplotlib.ticker import FuncFormatter
+
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v / 1e6:,.0f}"))
+    ax.set_ylim(bottom=0)
     ax.grid(True, which="both", linestyle=":", linewidth=0.5, alpha=0.55)
     ax.set_xticks(range(0, top_n + 1, max(1, top_n // 10)))
     ax.set_xlim(0.5, top_n + 0.5)
