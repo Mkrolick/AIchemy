@@ -44,7 +44,7 @@ def _set_paper_style() -> None:
     )
 
 
-def plot_profit_vs_rank(jsonl: Path, top_n: int, out: Path) -> None:
+def _load_records(jsonl: Path, top_n: int) -> list[dict]:
     records = []
     with open(jsonl) as f:
         for line in f:
@@ -53,45 +53,97 @@ def plot_profit_vs_rank(jsonl: Path, top_n: int, out: Path) -> None:
                 continue
             records.append(json.loads(line))
     records.sort(key=lambda r: r["iteration"])
-    records = records[:top_n]
+    return records[:top_n]
 
-    iters = [r["iteration"] for r in records]
-    profits = [r["profit"] for r in records]
 
+def plot_profit_vs_rank(
+    milp_jsonl: Path,
+    lp_jsonl: Path | None,
+    top_n: int,
+    out: Path,
+) -> None:
+    """Profit vs solve rank, with MILP and (optional) LP series overlaid."""
     fig, ax = plt.subplots(figsize=(5.5, 3.4))
-    ax.plot(iters, profits, "o-", color="#1f77b4", linewidth=1.4, markersize=4)
+
+    milp = _load_records(milp_jsonl, top_n)
+    if milp:
+        ax.plot(
+            [r["iteration"] for r in milp],
+            [r["profit"] for r in milp],
+            "o-",
+            color="#1f77b4",
+            linewidth=1.4,
+            markersize=4,
+            label="MILP",
+        )
+
+    if lp_jsonl is not None and lp_jsonl.exists():
+        lp = _load_records(lp_jsonl, top_n)
+        if lp:
+            ax.plot(
+                [r["iteration"] for r in lp],
+                [r["profit"] for r in lp],
+                "^--",
+                color="#ff7f0e",
+                linewidth=1.4,
+                markersize=4,
+                label="LP relaxation",
+            )
+
     ax.set_xlabel("Solve rank")
     ax.set_ylabel("Profit (USD)")
     ax.set_yscale("log")
     ax.grid(True, which="both", linestyle=":", linewidth=0.5, alpha=0.55)
     ax.set_xticks(range(0, top_n + 1, max(1, top_n // 10)))
     ax.set_xlim(0.5, top_n + 0.5)
+    if ax.get_legend_handles_labels()[0]:
+        ax.legend(loc="upper right", frameon=False)
     fig.tight_layout()
     fig.savefig(out)
     plt.close(fig)
 
 
-def plot_solve_time_vs_rank(jsonl: Path, top_n: int, out: Path) -> None:
-    records = []
-    with open(jsonl) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            records.append(json.loads(line))
-    records.sort(key=lambda r: r["iteration"])
-    records = records[:top_n]
-
-    iters = [r["iteration"] for r in records]
-    minutes = [r["wall_seconds"] / 60.0 for r in records]
-
+def plot_solve_time_vs_rank(
+    milp_jsonl: Path,
+    lp_jsonl: Path | None,
+    top_n: int,
+    out: Path,
+) -> None:
+    """Wall-clock per solve vs solve rank, MILP and (optional) LP overlaid (minutes)."""
     fig, ax = plt.subplots(figsize=(5.5, 3.4))
-    ax.plot(iters, minutes, "s-", color="#d62728", linewidth=1.4, markersize=4)
+
+    milp = _load_records(milp_jsonl, top_n)
+    if milp:
+        ax.plot(
+            [r["iteration"] for r in milp],
+            [r["wall_seconds"] / 60.0 for r in milp],
+            "s-",
+            color="#d62728",
+            linewidth=1.4,
+            markersize=4,
+            label="MILP",
+        )
+
+    if lp_jsonl is not None and lp_jsonl.exists():
+        lp = _load_records(lp_jsonl, top_n)
+        if lp:
+            ax.plot(
+                [r["iteration"] for r in lp],
+                [r["wall_seconds"] / 60.0 for r in lp],
+                "v--",
+                color="#2ca02c",
+                linewidth=1.4,
+                markersize=4,
+                label="LP relaxation",
+            )
+
     ax.set_xlabel("Solve rank")
     ax.set_ylabel("Wall-clock per solve (min)")
     ax.grid(True, which="both", linestyle=":", linewidth=0.5, alpha=0.55)
     ax.set_xticks(range(0, top_n + 1, max(1, top_n // 10)))
     ax.set_xlim(0.5, top_n + 0.5)
+    if ax.get_legend_handles_labels()[0]:
+        ax.legend(loc="upper left", frameon=False)
     fig.tight_layout()
     fig.savefig(out)
     plt.close(fig)
@@ -149,6 +201,13 @@ def main() -> int:
         "--jsonl",
         type=Path,
         default=Path("data/processed/profit_curve.jsonl"),
+        help="MILP profit-curve JSONL.",
+    )
+    p.add_argument(
+        "--lp-jsonl",
+        type=Path,
+        default=Path("data/processed/profit_curve_lp.jsonl"),
+        help="LP-relaxation profit-curve JSONL (overlaid on plots if present).",
     )
     p.add_argument(
         "--art-dir",
@@ -160,10 +219,20 @@ def main() -> int:
 
     _set_paper_style()
 
-    plot_profit_vs_rank(args.jsonl, args.top_n, args.art_dir / "profit_vs_rank_top20.png")
+    plot_profit_vs_rank(
+        args.jsonl,
+        args.lp_jsonl,
+        args.top_n,
+        args.art_dir / "profit_vs_rank_top20.png",
+    )
     print(f"wrote {args.art_dir / 'profit_vs_rank_top20.png'}")
 
-    plot_solve_time_vs_rank(args.jsonl, args.top_n, args.art_dir / "solve_time_vs_rank_top20.png")
+    plot_solve_time_vs_rank(
+        args.jsonl,
+        args.lp_jsonl,
+        args.top_n,
+        args.art_dir / "solve_time_vs_rank_top20.png",
+    )
     print(f"wrote {args.art_dir / 'solve_time_vs_rank_top20.png'}")
 
     for suffix in ("", "_licensed_only", "_licensed_sales"):
