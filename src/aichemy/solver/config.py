@@ -56,6 +56,16 @@ class SolverConfig(BaseModel):
     # where the user wants only a small number of distinct steps.
     max_reactions: int | None = None
 
+    # Force the pure LP relaxation: drop the binary y_r and w_c variables
+    # (and their linking constraints), giving up the min-flow disjunction
+    # and the cardinality caps. The remaining program is a continuous LP,
+    # solvable in polynomial time. Useful for upper-bound benchmarks and
+    # for runs where operational realism (minimum batch, SKU count) is
+    # not required. When False (default), the solver auto-detects: with
+    # min_flow=0, max_products=None, max_reactions=None it still builds
+    # an LP because no binary is load-bearing; otherwise a MILP.
+    lp_mode: bool = False
+
     # Molecules that are not allowed to be sold (q_sell pinned to 0).
     # Useful for "what-if I can't monetize this specific compound" analyses
     # — e.g., regulatory restrictions, internal-use targets, or to force

@@ -42,6 +42,18 @@ Constraints
     Product cardinality (optional):  Σ_c w_c ≤ N_prod
     Reaction cardinality (optional): Σ_r y_r ≤ N_rxn
 
+LP / MILP mode
+--------------
+The two binaries are gated by exactly the features that need them:
+``y_r`` is declared only when ``min_flow > 0`` (forcing the disjunction
+``f_r = 0 ∨ f_r ∈ [f_min, f_max]``) or ``max_reactions`` is set; ``w_c``
+only when ``max_products`` is set. With none of these and no explicit
+override, the model builds as a pure LP — no integer variables, no
+flow-activation or sell-switch constraints, and ``f_r`` bounded only by
+its variable upBound. ``SolverConfig.lp_mode=True`` forces the LP
+relaxation regardless of the other knobs (cardinality caps and
+``min_flow`` are silently ignored, with a warning logged).
+
 Mass balance is gram-coherent
 -----------------------------
 The stoichiometric coefficient `a_{c,r}` from MetaNetX/USPTO is **molar**
@@ -197,6 +209,34 @@ def build_and_solve(
     # Price lookup: c → (π_c^buy, π_c^sell).
     price_lookup = _build_price_lookup(molecules, C, config)
 
+    # Decide whether to declare integer variables. The two binaries are
+    # independent: y_r is needed for the min-flow disjunction or the
+    # reaction cardinality cap; w_c is needed for the product cardinality
+    # cap. Dropping a binary also drops every constraint that references
+    # it, leaving the model as a continuous LP for that side.
+    force_lp = config.lp_mode
+    need_y = (not force_lp) and (config.min_flow > 0 or config.max_reactions is not None)
+    need_w = (not force_lp) and (config.max_products is not None)
+    mode = "MILP" if (need_y or need_w) else "LP"
+    log.info(
+        "[solver] mode=%s reactions=%d chemicals=%d "
+        "(lp_mode=%s, min_flow=%g, max_products=%s, max_reactions=%s)",
+        mode,
+        len(rxn_meta),
+        len(C),
+        force_lp,
+        config.min_flow,
+        config.max_products,
+        config.max_reactions,
+    )
+    if force_lp and (config.max_products is not None or config.max_reactions is not None):
+        log.warning(
+            "[solver] lp_mode=True overrides cardinality caps "
+            "(max_products=%s, max_reactions=%s) — caps will be IGNORED.",
+            config.max_products,
+            config.max_reactions,
+        )
+
     # Build pulp problem.
     prob = pulp.LpProblem("AIchemy_profit", pulp.LpMaximize)
 
@@ -209,13 +249,21 @@ def build_and_solve(
         )
         for r in rxn_meta
     }
-    y = {
-        r["rxn_id"]: pulp.LpVariable(
-            f"y_{_safe(r['rxn_id'])}",
-            cat=pulp.LpBinary,
-        )
-        for r in rxn_meta
-    }
+    # y_r: binary reaction-activation indicator. Declared only when its
+    # linking constraint (flow_lb / flow_ub) or its cardinality cap is
+    # actually live; otherwise the program runs LP-mode for reactions
+    # and f_r is bounded only by its variable upBound (config.max_flow).
+    y: dict[str, pulp.LpVariable] | None
+    if need_y:
+        y = {
+            r["rxn_id"]: pulp.LpVariable(
+                f"y_{_safe(r['rxn_id'])}",
+                cat=pulp.LpBinary,
+            )
+            for r in rxn_meta
+        }
+    else:
+        y = None
     q_buy = {c: pulp.LpVariable(f"qbuy_{_safe(c)}", lowBound=0.0) for c in C}
     forbidden_sell = set(config.forbidden_sell_molecules)
     q_sell = {
@@ -229,7 +277,15 @@ def build_and_solve(
         )
         for c in C
     }
-    w = {c: pulp.LpVariable(f"w_{_safe(c)}", cat=pulp.LpBinary) for c in C}
+    # w_c: binary "is c targeted for sale" indicator. Declared only when
+    # the product cardinality cap is live; otherwise the LP determines
+    # whether c is sold purely from the sign of q_c^sell at the optimum,
+    # and w_c carries no information.
+    w: dict[str, pulp.LpVariable] | None
+    if need_w:
+        w = {c: pulp.LpVariable(f"w_{_safe(c)}", cat=pulp.LpBinary) for c in C}
+    else:
+        w = None
 
     # Objective: sell revenue − buy cost − process royalty − composition royalty.
     # Royalty terms are zero whenever (a) license data isn't attached to the
@@ -279,24 +335,34 @@ def build_and_solve(
         )
         prob += supply == consumption, f"mass_balance_{_safe(c)}"
 
-    # Flow activation bounds
-    for r in rxn_meta:
-        rxn_id = r["rxn_id"]
-        prob += f[rxn_id] >= config.min_flow * y[rxn_id], f"flow_lb_{_safe(rxn_id)}"
-        prob += f[rxn_id] <= config.max_flow * y[rxn_id], f"flow_ub_{_safe(rxn_id)}"
+    # Flow activation bounds — only meaningful when y_r exists. Without
+    # y_r, f_r >= 0 (variable lowBound) and f_r <= max_flow (variable
+    # upBound) already constrain the flow; the min-flow disjunction is
+    # gone by design (LP-mode for reactions).
+    if need_y:
+        assert y is not None  # for type checker
+        for r in rxn_meta:
+            rxn_id = r["rxn_id"]
+            prob += f[rxn_id] >= config.min_flow * y[rxn_id], f"flow_lb_{_safe(rxn_id)}"
+            prob += f[rxn_id] <= config.max_flow * y[rxn_id], f"flow_ub_{_safe(rxn_id)}"
 
-    # Sellable-quantity bound (w_c switches q_c^sell on/off). After mass-
-    # basis, q_sell is in grams: B / min π_c^buy is the tightest valid
-    # bound, since Σ q_buy ≤ B / min π_c^buy and balanced reactions yield
-    # Σ q_sell ≤ Σ q_buy under η ≤ 1. The earlier `max_flow · 100` was in
-    # mol-extent units, not grams — silently clamping sales in high-W or
-    # cheap-input regimes. Skip non-positive buy prices to avoid
-    # div-by-zero on degenerate data; if no positive price exists at all,
-    # fall back to a finite huge value.
-    positive_buys = [bp for (bp, _) in price_lookup.values() if bp > 0]
-    sell_big_m = config.budget / min(positive_buys) if positive_buys else config.budget * 1e6
-    for c in C:
-        prob += q_sell[c] <= sell_big_m * w[c], f"sell_switch_{_safe(c)}"
+    # Sellable-quantity bound (w_c switches q_c^sell on/off). Only
+    # meaningful when w_c exists. After mass-basis, q_sell is in grams:
+    # B / min π_c^buy is the tightest valid bound, since Σ q_buy ≤
+    # B / min π_c^buy and balanced reactions yield Σ q_sell ≤ Σ q_buy
+    # under η ≤ 1. The earlier `max_flow · 100` was in mol-extent units,
+    # not grams — silently clamping sales in high-W or cheap-input
+    # regimes. Skip non-positive buy prices to avoid div-by-zero on
+    # degenerate data; if no positive price exists at all, fall back to
+    # a finite huge value.
+    if need_w:
+        assert w is not None  # for type checker
+        positive_buys = [bp for (bp, _) in price_lookup.values() if bp > 0]
+        sell_big_m = (
+            config.budget / min(positive_buys) if positive_buys else config.budget * 1e6
+        )
+        for c in C:
+            prob += q_sell[c] <= sell_big_m * w[c], f"sell_switch_{_safe(c)}"
 
     # Budget
     prob += (
@@ -304,15 +370,21 @@ def build_and_solve(
         "budget",
     )
 
-    # Product cardinality
-    if config.max_products is not None:
+    # Product cardinality. Only meaningful when w_c exists; lp_mode=True
+    # drops w_c and silently ignores this cap (warning logged at solve
+    # start).
+    if config.max_products is not None and need_w:
+        assert w is not None  # for type checker
         prob += (
             pulp.lpSum(w[c] for c in C) <= config.max_products,
             "product_cap",
         )
 
-    # Reaction cardinality (synthesis-route length cap)
-    if config.max_reactions is not None:
+    # Reaction cardinality (synthesis-route length cap). Only meaningful
+    # when y_r exists; lp_mode=True drops y_r and silently ignores this
+    # cap (a warning is logged at solve start).
+    if config.max_reactions is not None and need_y:
+        assert y is not None  # for type checker
         prob += (
             pulp.lpSum(y[r["rxn_id"]] for r in rxn_meta) <= config.max_reactions,
             "reaction_cap",
@@ -325,11 +397,14 @@ def build_and_solve(
     status = pulp.LpStatus[prob.status]
     objective = pulp.value(prob.objective) or 0.0
 
-    # Extract activated reactions + non-trivial buys/sells
+    # Extract activated reactions + non-trivial buys/sells. Floor the
+    # threshold at 1e-9 so LP-mode runs (min_flow=0) don't dump every
+    # epsilon-flow into the result.
+    activation_threshold = max(config.min_flow / 2, 1e-9)
     activated: list[dict[str, Any]] = []
     for r in rxn_meta:
         val = pulp.value(f[r["rxn_id"]]) or 0.0
-        if val > config.min_flow / 2:
+        if val > activation_threshold:
             activated.append(
                 {"rxn_id": r["rxn_id"], "flow": float(val), "yield_rate": r["yield_rate"]}
             )

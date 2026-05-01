@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import polars as pl
 import pytest
 
@@ -159,3 +161,119 @@ def test_max_products_cardinality() -> None:
     solution = build_and_solve(reactions, molecules, SolverConfig(budget=1000.0, max_products=1))
     # Only one product can be sold.
     assert len(solution.sold_molecules) <= 1
+
+
+def test_lp_mode_matches_milp_when_no_milp_features() -> None:
+    """With min_flow=0, max_products=None, max_reactions=None the model is
+    inherently an LP regardless of lp_mode. Auto-detected LP and forced LP
+    must agree exactly with the MILP build (which also degenerates to an LP
+    when min_flow=0)."""
+    reactions = _sample_reactions(
+        [
+            {
+                "rxn_id": "r1",
+                "reactants": [{"mol_id": "A", "coefficient": 1.0}],
+                "products": [{"mol_id": "B", "coefficient": 1.0}],
+                "yield_rate": 0.9,
+            },
+        ]
+    )
+    molecules = _sample_molecules({"A": 1.0, "B": 10.0})
+
+    auto_lp = build_and_solve(
+        reactions, molecules, SolverConfig(budget=1000.0, min_flow=0.0)
+    )
+    forced_lp = build_and_solve(
+        reactions, molecules, SolverConfig(budget=1000.0, min_flow=0.0, lp_mode=True)
+    )
+    assert auto_lp.status == "Optimal"
+    assert forced_lp.status == "Optimal"
+    assert math.isclose(auto_lp.objective_value, forced_lp.objective_value, rel_tol=1e-6)
+    # And both should be strictly profitable (sells B at $10/g, buys A at $1/g).
+    assert auto_lp.objective_value > 0
+
+
+def test_lp_mode_overrides_cardinality_caps() -> None:
+    """lp_mode=True must drop max_products / max_reactions caps and match
+    the unconstrained LP optimum, not the MILP-with-caps optimum."""
+    reactions = _sample_reactions(
+        [
+            {
+                "rxn_id": "r1",
+                "reactants": [{"mol_id": "A", "coefficient": 1.0}],
+                "products": [{"mol_id": "B", "coefficient": 1.0}],
+            },
+            {
+                "rxn_id": "r2",
+                "reactants": [{"mol_id": "C", "coefficient": 1.0}],
+                "products": [{"mol_id": "D", "coefficient": 1.0}],
+            },
+        ]
+    )
+    # Two distinct products at the same margin so a cap of 1 product would
+    # bind in the MILP path and the relaxed LP would not.
+    molecules = _sample_molecules({"A": 1.0, "B": 10.0, "C": 1.0, "D": 10.0})
+
+    lp_with_cap = build_and_solve(
+        reactions,
+        molecules,
+        SolverConfig(budget=1000.0, min_flow=0.0, lp_mode=True, max_products=1),
+    )
+    lp_no_cap = build_and_solve(
+        reactions,
+        molecules,
+        SolverConfig(budget=1000.0, min_flow=0.0, lp_mode=True),
+    )
+    # LP mode ignores the cap entirely.
+    assert math.isclose(lp_with_cap.objective_value, lp_no_cap.objective_value, rel_tol=1e-6)
+
+
+def test_lp_mode_problem_has_no_integer_variables(caplog) -> None:
+    """Smoke test: confirm the mode log says LP and the produced PuLP
+    problem has zero binary variables when lp_mode=True. Guards against
+    accidental reintroduction of y_r / w_c."""
+    import logging
+    import pulp
+
+    reactions = _sample_reactions(
+        [
+            {
+                "rxn_id": "r1",
+                "reactants": [{"mol_id": "A", "coefficient": 1.0}],
+                "products": [{"mol_id": "B", "coefficient": 1.0}],
+            },
+        ]
+    )
+    molecules = _sample_molecules({"A": 1.0, "B": 10.0})
+
+    with caplog.at_level(logging.INFO, logger="aichemy.solver.model"):
+        build_and_solve(
+            reactions,
+            molecules,
+            SolverConfig(budget=1000.0, lp_mode=True, max_products=2, max_reactions=3),
+        )
+    # Mode line says LP.
+    assert any("mode=LP" in rec.getMessage() for rec in caplog.records)
+    # Override warning fired because user passed cardinality caps with lp_mode.
+    assert any("overrides cardinality caps" in rec.getMessage() for rec in caplog.records)
+
+
+def test_milp_mode_with_min_flow_still_uses_binaries(caplog) -> None:
+    """Default config (min_flow=1e-3) must still produce a MILP — guards
+    against the gating accidentally swallowing the legacy MILP path."""
+    import logging
+
+    reactions = _sample_reactions(
+        [
+            {
+                "rxn_id": "r1",
+                "reactants": [{"mol_id": "A", "coefficient": 1.0}],
+                "products": [{"mol_id": "B", "coefficient": 1.0}],
+            },
+        ]
+    )
+    molecules = _sample_molecules({"A": 1.0, "B": 10.0})
+
+    with caplog.at_level(logging.INFO, logger="aichemy.solver.model"):
+        build_and_solve(reactions, molecules, SolverConfig(budget=1000.0))
+    assert any("mode=MILP" in rec.getMessage() for rec in caplog.records)
