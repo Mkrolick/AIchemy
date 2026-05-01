@@ -56,6 +56,7 @@ def run_one_iteration(
     config: Path,
     out_dir: Path,
     log_dir: Path,
+    lp_mode: bool = False,
 ) -> dict | None:
     """Run one solve. Returns the JSONL record, or None if the loop should stop."""
     out_path = out_dir / f"iter_{iteration:04d}.json"
@@ -76,6 +77,10 @@ def run_one_iteration(
     ]
     if forbidden:
         cmd.extend(["--forbid-sell", ",".join(forbidden)])
+    if lp_mode:
+        # In LP mode the solver auto-strips the cardinality constraint; passing
+        # --max-reactions is harmless but the cap won't bind.
+        cmd.append("--lp-mode")
 
     print(
         f"[iter {iteration}] solving with {len(forbidden)} forbidden, output={out_path.name}",
@@ -143,23 +148,49 @@ def main() -> int:
     p.add_argument("--max-reactions", type=int, default=10)
     p.add_argument("--max-iterations", type=int, default=100)
     p.add_argument(
+        "--lp-mode",
+        action="store_true",
+        help=(
+            "Run each solve as an LP relaxation (drops integer y_r / w_c). "
+            "Default state-file and per-iteration output paths get an "
+            "_lp suffix so the LP curve doesn't clobber the MILP curve."
+        ),
+    )
+    p.add_argument(
         "--state-file",
         type=Path,
-        default=Path("data/processed/profit_curve.jsonl"),
-        help="Append-only JSONL with one record per iteration. Used for resume.",
+        default=None,
+        help=(
+            "Append-only JSONL with one record per iteration. Used for resume. "
+            "Defaults: data/processed/profit_curve.jsonl (MILP) or "
+            "data/processed/profit_curve_lp.jsonl (LP)."
+        ),
     )
     p.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("data/processed/profit_curve"),
-        help="Directory for per-iteration solution.json files.",
+        default=None,
+        help=(
+            "Directory for per-iteration solution.json files. Defaults: "
+            "data/processed/profit_curve/ (MILP) or "
+            "data/processed/profit_curve_lp/ (LP)."
+        ),
     )
     p.add_argument(
         "--log-dir",
         type=Path,
-        default=Path("logs/profit_curve"),
+        default=None,
     )
     args = p.parse_args()
+
+    # Default paths depend on lp_mode so MILP and LP runs land in distinct files.
+    suffix = "_lp" if args.lp_mode else ""
+    if args.state_file is None:
+        args.state_file = Path(f"data/processed/profit_curve{suffix}.jsonl")
+    if args.out_dir is None:
+        args.out_dir = Path(f"data/processed/profit_curve{suffix}")
+    if args.log_dir is None:
+        args.log_dir = Path(f"logs/profit_curve{suffix}")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     args.log_dir.mkdir(parents=True, exist_ok=True)
@@ -195,6 +226,7 @@ def main() -> int:
             config=args.config,
             out_dir=args.out_dir,
             log_dir=args.log_dir,
+            lp_mode=args.lp_mode,
         )
         if record is None:
             break
