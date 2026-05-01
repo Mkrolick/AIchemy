@@ -58,7 +58,24 @@ def main() -> int:
     p.add_argument(
         "--reactions",
         type=Path,
-        default=Path("data/processed/reactions.parquet"),
+        default=Path("data/interim/selected/reactions.parquet"),
+        help=(
+            "Source reactions table. Default is the 100k curated subsample "
+            "(data/interim/selected/reactions.parquet). For full-corpus runs "
+            "pass data/processed/reactions.parquet."
+        ),
+    )
+    p.add_argument(
+        "--balance-filter",
+        default="balanced",
+        choices=("rdkit_balanced", "balanced"),
+        help=(
+            "Pre-filter reactions to those flagged in this column. 'balanced' "
+            "is looser (per-source claim) and lets the sweep size axis scale "
+            "to the full corpus. 'rdkit_balanced' is the production default "
+            "but only ~40k reactions pass it, so any sweep size above that "
+            "is degenerate."
+        ),
     )
     p.add_argument(
         "--molecules",
@@ -95,11 +112,11 @@ def main() -> int:
         print(f"resume: {len(done)} (size, mode) pairs already recorded — will skip", flush=True)
 
     print(f"loading {args.reactions}", flush=True)
-    reactions_all = pl.read_parquet(args.reactions).filter(pl.col("rdkit_balanced"))
+    reactions_all = pl.read_parquet(args.reactions).filter(pl.col(args.balance_filter))
     print(f"loading {args.molecules}", flush=True)
     molecules = pl.read_parquet(args.molecules)
     print(
-        f"corpus: {reactions_all.height:,} rdkit_balanced reactions, "
+        f"corpus: {reactions_all.height:,} {args.balance_filter} reactions, "
         f"{molecules.height:,} molecules",
         flush=True,
     )
@@ -129,7 +146,11 @@ def main() -> int:
                 if (size, mode) in done:
                     print(f"  {mode}: cached, skipping", flush=True)
                     continue
-                cfg = SolverConfig(budget=args.budget, lp_mode=(mode == "LP"))
+                cfg = SolverConfig(
+                    budget=args.budget,
+                    lp_mode=(mode == "LP"),
+                    balance_filter=args.balance_filter,
+                )
                 t0 = time.monotonic()
                 sol = build_and_solve(sub, mol_subset, cfg)
                 wall = time.monotonic() - t0
