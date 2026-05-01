@@ -40,6 +40,16 @@ _ForbidSellOpt = typer.Option(
         "(q_sell pinned to 0). Example: --forbid-sell MNXM731718,MNXM319"
     ),
 )
+_LpModeOpt = typer.Option(
+    False,
+    "--lp-mode",
+    help=(
+        "Force the LP relaxation: drop binary y_r and w_c (and their linking "
+        "constraints), giving up the min-flow disjunction and any cardinality "
+        "caps. Polynomial-time; useful for upper-bound benchmarks and "
+        "integrality-gap experiments."
+    ),
+)
 _BackendOpt = typer.Option("cbc", "--backend")
 _VerboseOpt = typer.Option(False, "--verbose")
 _OutputOpt = typer.Option(
@@ -78,6 +88,7 @@ def solve(
     max_products: int | None = _MaxProductsOpt,
     max_reactions: int | None = _MaxReactionsOpt,
     forbid_sell: str = _ForbidSellOpt,
+    lp_mode: bool = _LpModeOpt,
     backend: str = _BackendOpt,
     verbose: bool = _VerboseOpt,
     output: Path | None = _OutputOpt,
@@ -91,6 +102,7 @@ def solve(
         max_products=max_products,
         max_reactions=max_reactions,
         forbidden_sell_molecules=forbidden,
+        lp_mode=lp_mode,
         backend=backend,  # type: ignore[arg-type]
         verbose=verbose,
         output_path=output or processed_path(cfg, "solution.json"),
@@ -181,6 +193,7 @@ def sweep(
     r_process: str = _RProcessOpt,
     r_comp: str = _RCompOpt,
     out: Path = _SweepOutOpt,
+    lp_mode: bool = _LpModeOpt,
     backend: str = _BackendOpt,
     verbose: bool = _VerboseOpt,
     balance_filter: str = _BalanceFilterOpt,
@@ -188,6 +201,7 @@ def sweep(
     """Sweep the (r_process, r_comp) grid; write per-cell solutions + summary parquet."""
     cfg = load_config(config, override)
     base_cfg = SolverConfig(
+        lp_mode=lp_mode,
         backend=backend,  # type: ignore[arg-type]
         verbose=verbose,
         output_path=processed_path(cfg, "solution.json"),
