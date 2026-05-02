@@ -61,6 +61,9 @@ data/processed/*.parquet
 data_subset/
 .env*
 
+# Claude Code local settings
+.claude/
+
 # Lambda snapshots — published as GitHub Release assets, not tracked in-repo.
 # Download from https://github.com/Mkrolick/AIchemy/releases/tag/v0.1-paper-snapshots
 paper/snapshots/*.tar.zst
