@@ -9,8 +9,8 @@ stages:
       size: 3415
     - path: src/aichemy/cli.py
       hash: md5
-      md5: 7d237314e4e73a07a661aacdafb92353
-      size: 34088
+      md5: d1e7c0c802d3145bacf1a4f7f3fa8e32
+      size: 38179
     outs:
     - path: data/raw/metanetx
       hash: md5
@@ -19,9 +19,9 @@ stages:
       nfiles: 4
     - path: data/raw/uspto
       hash: md5
-      md5: ccca6071cdabc5f1ed2fc96f5aa861c5.dir
-      size: 871956705
-      nfiles: 2
+      md5: cfa6d5aea4ded860540421874e9ea14f.dir
+      size: 75191394
+      nfiles: 1
   ingest_metanetx:
     cmd: uv run aichemy ingest metanetx --config configs/default.yaml
     deps:
@@ -218,8 +218,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/augmented/reactions_full.parquet
       hash: md5
       md5: 2fcf789cc7585bee949b37dd7444b7cf
@@ -230,8 +230,8 @@ stages:
       size: 165709175
     - path: src/aichemy/preprocessing/augment/prices.py
       hash: md5
-      md5: 675f9e08176cf75a75e7e593d61462ff
-      size: 15525
+      md5: a8f13f32a784b5907d989a24f37aecd7
+      size: 23732
     outs:
     - path: data/interim/augmented/molecules_priced.parquet
       hash: md5
@@ -262,8 +262,8 @@ stages:
     deps:
     - path: configs/default.yaml
       hash: md5
-      md5: 3ea81c77e4560aa60933e82ed0367c16
-      size: 1086
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
     - path: data/interim/augmented/molecules_priced.parquet
       hash: md5
       md5: 9f17fff8006ccb7f1d494655474ea874
@@ -272,6 +272,10 @@ stages:
       hash: md5
       md5: 9c288d42aa489e4bbe6408a48bf81ff5
       size: 40277142
+    - path: data/interim/selected/reactions.parquet
+      hash: md5
+      md5: 2c90d4dae1f2b62e92e1e371b6a1b076
+      size: 9652887
     - path: src/aichemy/preprocessing/export.py
       hash: md5
       md5: 08ca6f1949a2ea68f484a87640d424bd
@@ -279,16 +283,16 @@ stages:
     outs:
     - path: data/processed/hypergraph_manifest.json
       hash: md5
-      md5: f31feca18ade047cbe884c272e7409c9
-      size: 276
+      md5: 8ab7273124fc1b287f2564e1413c4d68
+      size: 275
     - path: data/processed/molecules.parquet
       hash: md5
-      md5: 9f17fff8006ccb7f1d494655474ea874
-      size: 165711345
+      md5: 38e04624f05bc038363cc9b78f6108db
+      size: 17179030
     - path: data/processed/reactions.parquet
       hash: md5
-      md5: 9c288d42aa489e4bbe6408a48bf81ff5
-      size: 40277142
+      md5: 104c21afbc84e78d8018f9220ebfd517
+      size: 9656701
   drop_unbalanced:
     cmd: uv run aichemy balance drop-unbalanced --config configs/default.yaml
     deps:
@@ -458,3 +462,23 @@ stages:
       hash: md5
       md5: 2c90d4dae1f2b62e92e1e371b6a1b076
       size: 9652887
+  augment_molecule_weights:
+    cmd: uv run aichemy augment molecule-weights --config configs/default.yaml
+    deps:
+    - path: configs/default.yaml
+      hash: md5
+      md5: c64fca78d96a5b09b3a5df3fa7f9cbc3
+      size: 3415
+    - path: data/processed/molecules.parquet
+      hash: md5
+      md5: 38e04624f05bc038363cc9b78f6108db
+      size: 17179030
+    - path: src/aichemy/preprocessing/augment/molecule_weights.py
+      hash: md5
+      md5: 64c9f2c2e45b9f0899c6b93293459b28
+      size: 2455
+    outs:
+    - path: data/processed/molecules_with_mw.parquet
+      hash: md5
+      md5: 913ff74e5d077add2e75bc9d539991d8
+      size: 17705663
