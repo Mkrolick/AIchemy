@@ -2,7 +2,7 @@
 
 Alchemy, Malcolm Krolick, 600.625, Spring 2026, May 1st
 
-Many of the files including the PubChem database were massive at ~360 GB. I do not have external server hosting so they cannot be downloaded additionally the cached DVC data is also too large to put on github. If that is needed please send me an email and I am happy to get that from my NAS.
+Many of the files including the PubChem database were massive at ~360 GB. I do not have external server hosting so they cannot be downloaded additionally the cached DVC data is also too large to put on github. If that is needed please send me an email and I am happy to get that from my Mac mini.
 
 All the best,
 Malcolm
@@ -174,8 +174,6 @@ prices:
     cache_path: data/interim/aichemy_pricing_cache.sqlite
 ```
 
-The verification trail lives at `experiments/chem-pricing-verification/VERIFICATION.md` (claim verdicts).
-
 **Vendors actually live in the default chain:**
 
 | Tier | Vendor | Backend | Status |
@@ -191,4 +189,4 @@ The verification trail lives at `experiments/chem-pricing-verification/VERIFICAT
 - **Enamine** (Browserbase Browser-API parser) — parser works in isolation, but the L3b tier is disabled in `build_default_chain` because each fall-through cost ~10s of session-setup time. Re-enable once a per-vendor gate short-circuits non-Enamine refs.
 - **Cayman / Sigma / Tocris-via-browser** — parsers exist under `aichemy_pricing/browserbase/parsers/` but are not registered in either `parsers/__init__.py` or `browser_parsers/__init__.py`.
 
-**Dropped during verification** (see `experiments/chem-pricing-verification/VERIFICATION.md`): Apollo Scientific (store decommissioned, CLAIM-11), Sigma-Aldrich and TCI (Akamai WAF, deferred), BLDpharm (URL pattern TBD, CLAIM-16), the login-walled tier (Fisher, TRC, Biosynth, Ambeed, etc.), the quote-only tier (AK Scientific, Matrix, BOC, etc.).
+**Dropped during verification**: Apollo Scientific (store decommissioned), Sigma-Aldrich and TCI (Akamai WAF, deferred), BLDpharm (URL pattern TBD), the login-walled tier (Fisher, TRC, Biosynth, Ambeed, etc.), the quote-only tier (AK Scientific, Matrix, BOC, etc.).
