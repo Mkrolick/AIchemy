@@ -52,11 +52,13 @@ def run_one_iteration(
     iteration: int,
     forbidden: list[str],
     *,
-    max_reactions: int,
+    max_reactions: int | None,
     config: Path,
     out_dir: Path,
     log_dir: Path,
     lp_mode: bool = False,
+    balance_filter: str | None = None,
+    time_limit: int | None = None,
 ) -> dict | None:
     """Run one solve. Returns the JSONL record, or None if the loop should stop."""
     out_path = out_dir / f"iter_{iteration:04d}.json"
@@ -70,17 +72,21 @@ def run_one_iteration(
         "run",
         "--config",
         str(config),
-        "--max-reactions",
-        str(max_reactions),
         "--output",
         str(out_path),
     ]
+    if max_reactions is not None:
+        cmd.extend(["--max-reactions", str(max_reactions)])
     if forbidden:
         cmd.extend(["--forbid-sell", ",".join(forbidden)])
     if lp_mode:
         # In LP mode the solver auto-strips the cardinality constraint; passing
         # --max-reactions is harmless but the cap won't bind.
         cmd.append("--lp-mode")
+    if balance_filter is not None:
+        cmd.extend(["--balance-filter", balance_filter])
+    if time_limit is not None:
+        cmd.extend(["--time-limit", str(time_limit)])
 
     print(
         f"[iter {iteration}] solving with {len(forbidden)} forbidden, output={out_path.name}",
@@ -145,7 +151,12 @@ def load_resume_state(jsonl_path: Path) -> tuple[int, list[str]]:
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--config", type=Path, default=Path("configs/default.yaml"))
-    p.add_argument("--max-reactions", type=int, default=10)
+    p.add_argument(
+        "--max-reactions",
+        type=int,
+        default=None,
+        help="Cap on activated reactions per solve. Omit for uncapped MILP.",
+    )
     p.add_argument("--max-iterations", type=int, default=100)
     p.add_argument(
         "--lp-mode",
@@ -180,6 +191,25 @@ def main() -> int:
         "--log-dir",
         type=Path,
         default=None,
+    )
+    p.add_argument(
+        "--balance-filter",
+        choices=("balanced", "rdkit_balanced"),
+        default=None,
+        help=(
+            "Pass-through to `aichemy solve run --balance-filter`. Omit to use "
+            "the solver's own default ('balanced')."
+        ),
+    )
+    p.add_argument(
+        "--time-limit",
+        type=int,
+        default=None,
+        help=(
+            "Pass-through to `aichemy solve run --time-limit`: per-iter CBC "
+            "wall-clock cap in seconds. Use for large MILPs where proving "
+            "optimality is intractable but a near-optimal answer is acceptable."
+        ),
     )
     args = p.parse_args()
 
@@ -227,6 +257,8 @@ def main() -> int:
             out_dir=args.out_dir,
             log_dir=args.log_dir,
             lp_mode=args.lp_mode,
+            balance_filter=args.balance_filter,
+            time_limit=args.time_limit,
         )
         if record is None:
             break
