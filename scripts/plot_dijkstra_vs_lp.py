@@ -1,4 +1,4 @@
-"""Two paper-clean plots overlaying Knuth-Dijkstra vs LP relaxation.
+"""Two paper-clean plots overlaying Knuth-Dijkstra vs LP.
 
 Reads the JSONLs:
   - data/processed/profit_curve_knuth_balanced.jsonl
@@ -62,7 +62,7 @@ def plot_profit(knuth_for_lp: list[dict], lp: list[dict], top_n: int, out: Path)
             color="#ff7f0e",
             linewidth=1.4,
             markersize=4,
-            label="LP relaxation",
+            label="LP",
         )
     if knuth_for_lp:
         ax.plot(
@@ -110,7 +110,7 @@ def plot_solve_time(knuth: list[dict], lp: list[dict], top_n: int, out: Path) ->
             color="#ff7f0e",
             linewidth=1.4,
             markersize=4,
-            label="LP relaxation",
+            label="LP",
         )
 
     ax.set_xlabel("Solve rank")

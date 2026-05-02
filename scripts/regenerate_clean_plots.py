@@ -59,12 +59,12 @@ def _load_records(jsonl: Path, top_n: int) -> list[dict]:
 _SERIES_PROFIT = [
     ("MILP (uncapped)", "o-", "#1f77b4"),
     ("MILP (cap=20)", "s-.", "#2ca02c"),
-    ("LP relaxation", "^--", "#ff7f0e"),
+    ("LP", "^--", "#ff7f0e"),
 ]
 _SERIES_TIME = [
     ("MILP (uncapped)", "s-", "#d62728"),
     ("MILP (cap=20)", "D-.", "#9467bd"),
-    ("LP relaxation", "v--", "#2ca02c"),
+    ("LP", "v--", "#2ca02c"),
 ]
 
 

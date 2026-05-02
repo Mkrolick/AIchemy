@@ -54,7 +54,7 @@ def main() -> int:
     styles = {
         "MILP": ("o-", "#1f77b4", "MILP (uncapped)"),
         "MILP-cap20": ("s-.", "#2ca02c", "MILP (cap=20)"),
-        "LP": ("^--", "#ff7f0e", "LP relaxation"),
+        "LP": ("^--", "#ff7f0e", "LP"),
     }
     for mode, (marker, color, label) in styles.items():
         d = df.filter(pl.col("mode") == mode)
