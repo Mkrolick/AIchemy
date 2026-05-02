@@ -14,8 +14,6 @@ Profit-maximizing chemo-enzymatic reaction pathway selection via MILP over a uni
 
 The pipeline is orchestrated with [DVC](https://dvc.org): each stage (ingest, normalize, dedup, balance, augment, patents, select, export, MW augmentation) is declared in `dvc.yaml`, dependency hashes live in `dvc.lock`, and bulk data + intermediate parquets are versioned through a configurable DVC remote — only small text artifacts are committed to git.
 
-See `proposal.md` for the scientific motivation.
-
 ## Quick Start
 
 ### Prerequisites
@@ -123,10 +121,6 @@ uv run aichemy solve sweep --config configs/default.yaml   # (r_process, r_comp)
 ```
 
 The mass balance is gram-coherent: stoichiometric coefficients are pre-multiplied by each participant's molecular weight (from `data/processed/molecules_with_mw.parquet`) so reaction extent `f_r` is in mol-extent units while purchase/sale quantities are in grams. Reactions whose participants lack a usable MW are dropped at model-build time with a tally logged. See `src/aichemy/solver/model.py` for the formulation.
-
-## Documentation
-
-- `proposal.md` — scientific proposal (MILP formulation, database choices, solver approach)
 
 ## Vendor pricing
 
