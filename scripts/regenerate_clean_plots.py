@@ -56,44 +56,46 @@ def _load_records(jsonl: Path, top_n: int) -> list[dict]:
     return records[:top_n]
 
 
+_SERIES_PROFIT = [
+    ("MILP (uncapped)", "o-", "#1f77b4"),
+    ("MILP (cap=20)", "s-.", "#2ca02c"),
+    ("LP relaxation", "^--", "#ff7f0e"),
+]
+_SERIES_TIME = [
+    ("MILP (uncapped)", "s-", "#d62728"),
+    ("MILP (cap=20)", "D-.", "#9467bd"),
+    ("LP relaxation", "v--", "#2ca02c"),
+]
+
+
 def plot_profit_vs_rank(
     milp_jsonl: Path,
     lp_jsonl: Path | None,
+    cap20_jsonl: Path | None,
     top_n: int,
     out: Path,
 ) -> None:
-    """Profit vs solve rank, with MILP and (optional) LP series overlaid."""
+    """Profit vs solve rank, with MILP / MILP-cap20 / LP series overlaid."""
     fig, ax = plt.subplots(figsize=(5.5, 3.4))
-
-    milp = _load_records(milp_jsonl, top_n)
-    if milp:
+    paths = [milp_jsonl, cap20_jsonl, lp_jsonl]
+    for path, (label, marker, color) in zip(paths, _SERIES_PROFIT, strict=True):
+        if path is None or not path.exists():
+            continue
+        rs = _load_records(path, top_n)
+        if not rs:
+            continue
         ax.plot(
-            [r["iteration"] for r in milp],
-            [r["profit"] for r in milp],
-            "o-",
-            color="#1f77b4",
+            [r["iteration"] for r in rs],
+            [r["profit"] for r in rs],
+            marker,
+            color=color,
             linewidth=1.4,
             markersize=4,
-            label="MILP",
+            label=label,
         )
-
-    if lp_jsonl is not None and lp_jsonl.exists():
-        lp = _load_records(lp_jsonl, top_n)
-        if lp:
-            ax.plot(
-                [r["iteration"] for r in lp],
-                [r["profit"] for r in lp],
-                "^--",
-                color="#ff7f0e",
-                linewidth=1.4,
-                markersize=4,
-                label="LP relaxation",
-            )
 
     ax.set_xlabel("Solve rank")
     ax.set_ylabel("Profit (USD, millions)")
-    # Linear y in millions: profits span ~16x on this corpus, log-scale
-    # compresses that into one decade and the curve looks flat.
     from matplotlib.ticker import FuncFormatter
 
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v / 1e6:,.0f}"))
@@ -111,36 +113,28 @@ def plot_profit_vs_rank(
 def plot_solve_time_vs_rank(
     milp_jsonl: Path,
     lp_jsonl: Path | None,
+    cap20_jsonl: Path | None,
     top_n: int,
     out: Path,
 ) -> None:
-    """Wall-clock per solve vs solve rank, MILP and (optional) LP overlaid (minutes)."""
+    """Wall-clock per solve vs solve rank (minutes), 3-series overlay."""
     fig, ax = plt.subplots(figsize=(5.5, 3.4))
-
-    milp = _load_records(milp_jsonl, top_n)
-    if milp:
+    paths = [milp_jsonl, cap20_jsonl, lp_jsonl]
+    for path, (label, marker, color) in zip(paths, _SERIES_TIME, strict=True):
+        if path is None or not path.exists():
+            continue
+        rs = _load_records(path, top_n)
+        if not rs:
+            continue
         ax.plot(
-            [r["iteration"] for r in milp],
-            [r["wall_seconds"] / 60.0 for r in milp],
-            "s-",
-            color="#d62728",
+            [r["iteration"] for r in rs],
+            [r["wall_seconds"] / 60.0 for r in rs],
+            marker,
+            color=color,
             linewidth=1.4,
             markersize=4,
-            label="MILP",
+            label=label,
         )
-
-    if lp_jsonl is not None and lp_jsonl.exists():
-        lp = _load_records(lp_jsonl, top_n)
-        if lp:
-            ax.plot(
-                [r["iteration"] for r in lp],
-                [r["wall_seconds"] / 60.0 for r in lp],
-                "v--",
-                color="#2ca02c",
-                linewidth=1.4,
-                markersize=4,
-                label="LP relaxation",
-            )
 
     ax.set_xlabel("Solve rank")
     ax.set_ylabel("Wall-clock per solve (min)")
@@ -215,6 +209,12 @@ def main() -> int:
         help="LP-relaxation profit-curve JSONL (overlaid on plots if present).",
     )
     p.add_argument(
+        "--cap20-jsonl",
+        type=Path,
+        default=Path("data/processed/profit_curve_cap20.jsonl"),
+        help="MILP-cap=20 profit-curve JSONL (overlaid on plots if present).",
+    )
+    p.add_argument(
         "--art-dir",
         type=Path,
         default=Path("data/processed/writeup_artifacts"),
@@ -227,6 +227,7 @@ def main() -> int:
     plot_profit_vs_rank(
         args.jsonl,
         args.lp_jsonl,
+        args.cap20_jsonl,
         args.top_n,
         args.art_dir / "profit_vs_rank_top20.png",
     )
@@ -235,6 +236,7 @@ def main() -> int:
     plot_solve_time_vs_rank(
         args.jsonl,
         args.lp_jsonl,
+        args.cap20_jsonl,
         args.top_n,
         args.art_dir / "solve_time_vs_rank_top20.png",
     )
