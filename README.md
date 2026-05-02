@@ -1,10 +1,20 @@
+# Pre-note
+
+Alchemy, Malcolm Krolick, 600.625, Spring 2026, May 1st
+
+Many of the files including the PubChem database were massive at ~360 GB. I do not have external server hosting so they cannot be downloaded additionally the cached DVC data is also too large to put on github. If that is needed please send me an email and I am happy to get that from my NAS.
+
+All the best,
+Malcolm
+
+
 # AIchemy
 
 Profit-maximizing chemo-enzymatic reaction pathway selection via MILP over a unified hypergraph of MetaNetX (enzymatic) and USPTO (chemical) reactions.
 
 The pipeline is orchestrated with [DVC](https://dvc.org): each stage (ingest, normalize, dedup, balance, augment, patents, select, export, MW augmentation) is declared in `dvc.yaml`, dependency hashes live in `dvc.lock`, and bulk data + intermediate parquets are versioned through a configurable DVC remote — only small text artifacts are committed to git.
 
-See `proposal.md` for the scientific motivation. See `docs/superpowers/specs/` for engineering design docs.
+See `proposal.md` for the scientific motivation.
 
 ## Quick Start
 
@@ -117,8 +127,6 @@ The mass balance is gram-coherent: stoichiometric coefficients are pre-multiplie
 ## Documentation
 
 - `proposal.md` — scientific proposal (MILP formulation, database choices, solver approach)
-- `docs/superpowers/specs/` — design specs (repo layout, pricing/licensing)
-- `docs/superpowers/plans/` — implementation plans for each stage and feature
 
 ## Vendor pricing
 
@@ -172,10 +180,7 @@ prices:
     cache_path: data/interim/aichemy_pricing_cache.sqlite
 ```
 
-The implementation plan and verification trail live at:
-- `docs/superpowers/plans/2026-04-25-aichemy-pricing-package.md` (master)
-- `docs/superpowers/plans/2026-04-25-aichemy-pricing-{A,B,C,D,E,F}-*.md` (sub-plans)
-- `experiments/chem-pricing-verification/VERIFICATION.md` (claim verdicts)
+The verification trail lives at `experiments/chem-pricing-verification/VERIFICATION.md` (claim verdicts).
 
 **Vendors actually live in the default chain:**
 
@@ -188,7 +193,7 @@ The implementation plan and verification trail live at:
 
 **On disk but not in the default chain:**
 
-- **Tocris** (direct-HTTP class) — page restructured; parser keys are gone. Excluded by `_DEFAULT_VENDOR_CLASSES`. Re-add once the parser is rebuilt; see `docs/superpowers/findings/2026-04-26-pubchem-resolver-empirical-findings.md`.
+- **Tocris** (direct-HTTP class) — page restructured; parser keys are gone. Excluded by `_DEFAULT_VENDOR_CLASSES`. Re-add once the parser is rebuilt against the current page layout.
 - **Enamine** (Browserbase Browser-API parser) — parser works in isolation, but the L3b tier is disabled in `build_default_chain` because each fall-through cost ~10s of session-setup time. Re-enable once a per-vendor gate short-circuits non-Enamine refs.
 - **Cayman / Sigma / Tocris-via-browser** — parsers exist under `aichemy_pricing/browserbase/parsers/` but are not registered in either `parsers/__init__.py` or `browser_parsers/__init__.py`.
 
