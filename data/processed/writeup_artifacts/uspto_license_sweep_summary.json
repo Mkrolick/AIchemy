@@ -1,0 +1,18 @@
+{
+  "rates": [
+    0.0,
+    0.02,
+    0.04,
+    0.06
+  ],
+  "n_cells": 16,
+  "uspto_reactions": 334619,
+  "full_reactions": 364790,
+  "total_wall_seconds": 192.39545338100288,
+  "avg_per_cell_seconds_uspto_subset": 12.024619779374007,
+  "extrapolated_per_cell_seconds_full_corpus": 13.108822419880056,
+  "extrapolated_full_grid_seconds_full_corpus": 209.7411587180809,
+  "budget": 10000.0,
+  "max_reactions": 10,
+  "timestamp_utc": "2026-04-30T04:56:20.660188+00:00"
+}

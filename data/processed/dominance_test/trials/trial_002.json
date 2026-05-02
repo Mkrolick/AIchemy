@@ -1,0 +1,39 @@
+{
+  "status": "Optimal",
+  "objective_value": 163597142.76878783,
+  "activated_reactions": [
+    {
+      "rxn_id": "MNXR111804",
+      "flow": 476.61167,
+      "yield_rate": 0.6577379946100744
+    }
+  ],
+  "purchased_molecules": [
+    {
+      "mol_id": "MNXM6153",
+      "quantity": 35308.823,
+      "price_per_gram": 0.10640000000000001,
+      "cost": 3756.8587672
+    },
+    {
+      "mol_id": "MNXM5192",
+      "quantity": 58676.14,
+      "price_per_gram": 0.10640000000000001,
+      "cost": 6243.141296000001
+    }
+  ],
+  "sold_molecules": [
+    {
+      "mol_id": "WATER",
+      "quantity": 5647.4432,
+      "price_per_gram": 0.1197,
+      "revenue": 675.99895104
+    },
+    {
+      "mol_id": "MNXM6337",
+      "quantity": 56170.037,
+      "price_per_gram": 2912.7000000000003,
+      "revenue": 163606466.7699
+    }
+  ]
+}

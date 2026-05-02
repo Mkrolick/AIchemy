@@ -1,0 +1,27 @@
+{
+  "status": "Optimal",
+  "objective_value": 404641845.3739102,
+  "activated_reactions": [
+    {
+      "rxn_id": "MNXR123251",
+      "flow": 47.751546,
+      "yield_rate": 0.6577379946100744
+    }
+  ],
+  "purchased_molecules": [
+    {
+      "mol_id": "MNXM1104434",
+      "quantity": 16345.211,
+      "price_per_gram": 0.6118,
+      "cost": 10000.0000898
+    }
+  ],
+  "sold_molecules": [
+    {
+      "mol_id": "MNXM1108189",
+      "quantity": 10750.866,
+      "price_per_gram": 37639.0,
+      "revenue": 404651845.374
+    }
+  ]
+}

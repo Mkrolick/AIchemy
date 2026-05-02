@@ -1,0 +1,17 @@
+{
+  "n_trials": 30,
+  "n_dominated": 30,
+  "dominance_threshold": 0.5,
+  "null_prob": 0.5,
+  "alpha": 0.01,
+  "binomial_p_value": 9.313225746154785e-10,
+  "decision": "reject H\u2080",
+  "source_reactions": "data/interim/selected/reactions.parquet",
+  "total_reactions_partitioned": 100000,
+  "shuffle_seed": 42,
+  "max_reactions": 10,
+  "budget": 10000.0,
+  "median_dominance_ratio": 1.0,
+  "mean_dominance_ratio": 0.9999374757766079,
+  "timestamp_utc": "2026-04-30T04:38:44.066263+00:00"
+}

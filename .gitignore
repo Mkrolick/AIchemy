@@ -42,9 +42,14 @@ dmypy.json
 # Jupyter
 .ipynb_checkpoints
 
-# Data (DVC-tracked)
-data/
-!data/.gitkeep
+# Data (DVC-tracked) — raw/interim/external/backups stay out of git entirely.
+# data/processed/ is selectively committed (small jsonl artifacts, plot inputs,
+# dominance_test/, writeup_artifacts/) but large parquets stay in the DVC remote.
+data/raw/
+data/interim/
+data/external/
+data/backups/
+data/processed/*.parquet
 
 # DVC
 .dvc/cache/

@@ -1,0 +1,27 @@
+{
+  "status": "Optimal",
+  "objective_value": 32710770.336896405,
+  "activated_reactions": [
+    {
+      "rxn_id": "USPTO:US06211196B1:506458",
+      "flow": 174.93402,
+      "yield_rate": 0.6577379946100744
+    }
+  ],
+  "purchased_molecules": [
+    {
+      "mol_id": "CC1C=CC2C(=C(O)C=CC=2)N=1",
+      "quantity": 27847.396,
+      "price_per_gram": 0.35910000000000003,
+      "cost": 9999.9999036
+    }
+  ],
+  "sold_molecules": [
+    {
+      "mol_id": "[CH3:12][CH:9]1[CH2:8][CH2:7][C:6]2[C:11](=[C:2]([OH:1])[CH:3]=[CH:4][CH:5]=2)[NH:10]1",
+      "quantity": 18780.216,
+      "price_per_gram": 1742.3000000000002,
+      "revenue": 32720770.336800005
+    }
+  ]
+}

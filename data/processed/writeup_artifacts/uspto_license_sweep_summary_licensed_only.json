@@ -1,0 +1,19 @@
+{
+  "rates": [
+    0.0,
+    0.02,
+    0.04,
+    0.06
+  ],
+  "n_cells": 16,
+  "uspto_reactions": 159105,
+  "full_reactions": 364790,
+  "total_wall_seconds": 140.93217030300002,
+  "avg_per_cell_seconds_uspto_subset": 8.80817056925116,
+  "extrapolated_per_cell_seconds_full_corpus": 20.19504441693932,
+  "extrapolated_full_grid_seconds_full_corpus": 323.12071067102914,
+  "budget": 10000.0,
+  "max_reactions": 10,
+  "timestamp_utc": "2026-04-30T05:14:05.164472+00:00",
+  "patent_active_only": true
+}
