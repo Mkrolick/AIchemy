@@ -609,9 +609,12 @@ class _InchikeyAdapter:
         self._inner = inner
         self._fx = fx_to_usd or _FX_TO_USD_AS_OF_2026_04_25
 
-    def lookup(self, smiles: str) -> float | None:
+    def lookup(self, smiles: str | None) -> float | None:
         from rdkit import Chem  # lazy import (only when this backend is used)
 
+        if not smiles:
+            log.warning("[null-smiles] skipping aichemy_pricing lookup (smiles=%r)", smiles)
+            return None
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             return None

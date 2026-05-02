@@ -60,12 +60,7 @@ prices:
     # Note: Molbase (Chinese vendor, no PubChem deposit) is in our chain but
     # absent here — its SDFs would have to come from a different source.
     allowed_sources:
-      - "822"             # Enamine (5.2M live substances)
-      - "959"             # MedChemexpress MCE (117K)
-      - "10600"           # Tocris Bioscience (5K)
-      - "25659"           # Santa Cruz Biotechnology, Inc. (174K)
-      - "29665"           # Fluorochem (96K)
-      - "Sigma-Aldrich"   # Sigma-Aldrich (258K) — literal string DSN, not numeric
+      - "29665"             # Fluorochem only — other 5 vendor parsers are broken
     max_workers: 100
 
 paths:

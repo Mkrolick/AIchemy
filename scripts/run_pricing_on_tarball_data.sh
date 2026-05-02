@@ -73,7 +73,7 @@ if [ -f "$INDEX" ]; then
   blue "       (delete the file if you want to rebuild)"
 else
   blue "[1/3] building pricing index (~5 min on 64-core)"
-  uv run python scripts/build_pricing_index_fast.py
+  uv run python scripts/build_pricing_index_fast.py --allowed-dsns 29665
 fi
 
 # --- step 2: augment prices ---------------------------------------------------
