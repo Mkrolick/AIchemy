@@ -281,11 +281,9 @@ def build_and_solve(
     # the product cardinality cap is live; otherwise the LP determines
     # whether c is sold purely from the sign of q_c^sell at the optimum,
     # and w_c carries no information.
-    w: dict[str, pulp.LpVariable] | None
-    if need_w:
-        w = {c: pulp.LpVariable(f"w_{_safe(c)}", cat=pulp.LpBinary) for c in C}
-    else:
-        w = None
+    w: dict[str, pulp.LpVariable] | None = (
+        {c: pulp.LpVariable(f"w_{_safe(c)}", cat=pulp.LpBinary) for c in C} if need_w else None
+    )
 
     # Objective: sell revenue − buy cost − process royalty − composition royalty.
     # Royalty terms are zero whenever (a) license data isn't attached to the
@@ -330,9 +328,7 @@ def build_and_solve(
         supply = q_buy[c] + pulp.lpSum(
             a * yld * f[rxn_id] for (rxn_id, a, yld) in producers.get(c, [])
         )
-        consumption = q_sell[c] + pulp.lpSum(
-            a * f[rxn_id] for (rxn_id, a) in consumers.get(c, [])
-        )
+        consumption = q_sell[c] + pulp.lpSum(a * f[rxn_id] for (rxn_id, a) in consumers.get(c, []))
         prob += supply == consumption, f"mass_balance_{_safe(c)}"
 
     # Flow activation bounds — only meaningful when y_r exists. Without
@@ -358,9 +354,7 @@ def build_and_solve(
     if need_w:
         assert w is not None  # for type checker
         positive_buys = [bp for (bp, _) in price_lookup.values() if bp > 0]
-        sell_big_m = (
-            config.budget / min(positive_buys) if positive_buys else config.budget * 1e6
-        )
+        sell_big_m = config.budget / min(positive_buys) if positive_buys else config.budget * 1e6
         for c in C:
             prob += q_sell[c] <= sell_big_m * w[c], f"sell_switch_{_safe(c)}"
 
@@ -486,18 +480,25 @@ def _build_price_lookup(
 def _make_solver(config: SolverConfig) -> pulp.LpSolver:
     import shutil
 
+    tl = config.time_limit_seconds
     if config.backend == "gurobi":
         try:
-            return pulp.GUROBI_CMD(msg=config.verbose)
+            kw: dict = {"msg": config.verbose}
+            if tl is not None:
+                kw["timeLimit"] = tl
+            return pulp.GUROBI_CMD(**kw)
         except Exception as exc:
             log.warning("Gurobi backend unavailable (%s); falling back to CBC.", exc)
 
     # Prefer a system-installed CBC (brew install cbc) since pulp's bundled
     # CBC is x86_64-only and won't run on Apple Silicon.
     system_cbc = shutil.which("cbc")
+    cbc_kw: dict = {"msg": config.verbose}
+    if tl is not None:
+        cbc_kw["timeLimit"] = tl
     if system_cbc:
-        return pulp.COIN_CMD(path=system_cbc, msg=config.verbose)
-    return pulp.PULP_CBC_CMD(msg=config.verbose)
+        return pulp.COIN_CMD(path=system_cbc, **cbc_kw)
+    return pulp.PULP_CBC_CMD(**cbc_kw)
 
 
 def _safe(name: str) -> str:
