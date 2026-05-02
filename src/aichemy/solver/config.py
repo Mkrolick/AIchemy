@@ -78,6 +78,11 @@ class SolverConfig(BaseModel):
     # Verbosity
     verbose: bool = False
 
+    # CBC wall-clock cap per solve (seconds). None means no limit.
+    # When the limit is reached, CBC returns the best feasible solution found
+    # (status field becomes 'Not_Solved' or similar; objective is the incumbent).
+    time_limit_seconds: int | None = None
+
     # Royalty rate on process-covered reaction revenue (decimal fraction, [0, 1]).
     # Default 0.0 preserves legacy behavior when license data is absent or
     # the sweep CLI hasn't been invoked.

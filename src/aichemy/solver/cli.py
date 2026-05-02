@@ -55,12 +55,23 @@ _VerboseOpt = typer.Option(False, "--verbose")
 _OutputOpt = typer.Option(
     None, "--output", help="JSON output path (default: data/processed/solution.json)"
 )
+_TimeLimitOpt = typer.Option(
+    None,
+    "--time-limit",
+    help=(
+        "CBC wall-clock cap per solve (seconds). When CBC hits the limit it "
+        "returns the best feasible incumbent (status flips to Not_Solved). "
+        "Useful for bounded runs on large MILPs where proving optimality is "
+        "intractable but a near-optimal answer is acceptable."
+    ),
+)
 _BalanceFilterOpt = typer.Option(
-    "rdkit_balanced",
+    "balanced",
     "--balance-filter",
     help=(
-        "Which boolean column gates reactions: 'rdkit_balanced' (default, "
-        "strict atom-count) or 'balanced' (looser per-source claim)."
+        "Which boolean column gates reactions: 'balanced' (default, looser "
+        "per-source claim — matches the 100K curated subset) or "
+        "'rdkit_balanced' (strict atom-count, ~41K subset)."
     ),
 )
 _RProcessOpt = typer.Option(
@@ -93,6 +104,7 @@ def solve(
     verbose: bool = _VerboseOpt,
     output: Path | None = _OutputOpt,
     balance_filter: str = _BalanceFilterOpt,
+    time_limit: int | None = _TimeLimitOpt,
 ) -> None:
     """Solve the profit-maximization MILP on `data/processed/`."""
     cfg = load_config(config, override)
@@ -107,6 +119,7 @@ def solve(
         verbose=verbose,
         output_path=output or processed_path(cfg, "solution.json"),
         balance_filter=balance_filter,  # type: ignore[arg-type]
+        time_limit_seconds=time_limit,
     )
 
     reactions = read_reactions(processed_path(cfg, "reactions.parquet"))
