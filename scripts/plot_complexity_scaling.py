@@ -50,11 +50,13 @@ def main() -> int:
     )
 
     fig, ax = plt.subplots(figsize=(5.6, 3.8))
+    # (marker_linestyle, color, legend_label)
     styles = {
-        "MILP": ("o-", "#1f77b4"),
-        "LP": ("^--", "#ff7f0e"),
+        "MILP": ("o-", "#1f77b4", "MILP (uncapped)"),
+        "MILP-cap20": ("s-.", "#2ca02c", "MILP (cap=20)"),
+        "LP": ("^--", "#ff7f0e", "LP relaxation"),
     }
-    for mode, (marker, color) in styles.items():
+    for mode, (marker, color, label) in styles.items():
         d = df.filter(pl.col("mode") == mode)
         if d.is_empty():
             continue
@@ -65,7 +67,7 @@ def main() -> int:
             color=color,
             linewidth=1.5,
             markersize=5,
-            label=mode,
+            label=label,
         )
 
     ax.set_xscale("log")
