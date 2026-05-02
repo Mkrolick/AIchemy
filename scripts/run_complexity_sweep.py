@@ -28,18 +28,23 @@ from aichemy.solver.config import SolverConfig
 from aichemy.solver.model import build_and_solve
 
 
-def _load_done(jsonl: Path) -> set[tuple[int, str]]:
-    """Return the (size, mode) pairs already recorded in jsonl."""
+def _load_done(jsonl: Path) -> set[tuple[int, int, str]]:
+    """Return the (seed, size, mode) triples already recorded in jsonl.
+
+    Records written before --seeds existed lack a `seed` field; treat them
+    as belonging to seed=42 (the original single-seed default) so resume
+    of legacy JSONLs still works.
+    """
     if not jsonl.exists():
         return set()
-    done: set[tuple[int, str]] = set()
+    done: set[tuple[int, int, str]] = set()
     with open(jsonl) as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
             r = json.loads(line)
-            done.add((int(r["size"]), str(r["mode"])))
+            done.add((int(r.get("seed", 42)), int(r["size"]), str(r["mode"])))
     return done
 
 
@@ -51,6 +56,22 @@ def _filter_molecules(reactions: pl.DataFrame, molecules: pl.DataFrame) -> pl.Da
             for p in row[side]:
                 referenced.add(p["mol_id"])
     return molecules.filter(pl.col("mol_id").is_in(list(referenced)))
+
+
+def _parse_mode(mode: str) -> tuple[bool, int | None]:
+    """Resolve a mode label to (lp_mode, max_reactions).
+
+    'LP' → LP relaxation, no cap.
+    'MILP' → MILP, no cap.
+    'MILP-capN' → MILP with --max-reactions=N.
+    """
+    if mode == "LP":
+        return True, None
+    if mode == "MILP":
+        return False, None
+    if mode.startswith("MILP-cap"):
+        return False, int(mode.removeprefix("MILP-cap"))
+    raise ValueError(f"unknown mode: {mode!r}")
 
 
 def main() -> int:
@@ -87,7 +108,18 @@ def main() -> int:
         default="500,1000,2000,5000,10000,20000,50000,100000,200000",
         help="Comma-separated subset sizes. Special value 'full' = entire balanced corpus.",
     )
-    p.add_argument("--seed", type=int, default=42, help="Shuffle seed for nested subsets.")
+    p.add_argument("--seed", type=int, default=42, help="Shuffle seed (single-seed mode).")
+    p.add_argument(
+        "--seeds",
+        default=None,
+        help=(
+            "Comma-separated list of independent shuffle seeds, e.g. "
+            "'42,43,44,45,46'. When given, each (seed, size, mode) triple "
+            "becomes its own JSONL record so means/std can be computed "
+            "downstream. Each seed re-shuffles the full corpus independently, "
+            "so subsamples across seeds are not nested."
+        ),
+    )
     p.add_argument("--budget", type=float, default=10_000.0)
     p.add_argument(
         "--include-full",
@@ -97,7 +129,10 @@ def main() -> int:
     p.add_argument(
         "--modes",
         default="MILP,LP",
-        help="Comma-separated solver modes to run.",
+        help=(
+            "Comma-separated solver modes. Recognised: 'MILP', 'LP', "
+            "'MILP-capN' (MILP with --max-reactions=N, e.g. 'MILP-cap20')."
+        ),
     )
     p.add_argument(
         "--out-jsonl",
@@ -121,61 +156,68 @@ def main() -> int:
         flush=True,
     )
 
-    shuffled = reactions_all.sample(n=reactions_all.height, seed=args.seed, with_replacement=False)
+    seeds = [int(s) for s in args.seeds.split(",") if s.strip()] if args.seeds else [args.seed]
+    print(f"seeds: {seeds}", flush=True)
 
-    sizes = [int(s) for s in args.sizes.split(",") if s.strip()]
-    if args.include_full and shuffled.height not in sizes:
-        sizes.append(shuffled.height)
-    sizes = sorted(set(sizes))
+    sizes_in = [int(s) for s in args.sizes.split(",") if s.strip()]
     modes = [m.strip() for m in args.modes.split(",") if m.strip()]
-    print(f"sizes: {sizes}\nmodes: {modes}", flush=True)
 
-    out_f = open(args.out_jsonl, "a")
-    try:
-        for size in sizes:
-            if size > shuffled.height:
-                print(f"size {size:,} > corpus size {shuffled.height:,} — clipping", flush=True)
-                size = shuffled.height
-            sub = shuffled.head(size)
-            mol_subset = _filter_molecules(sub, molecules)
-            print(
-                f"\n=== size={size:,} rxns, {mol_subset.height:,} mols ===",
-                flush=True,
+    with open(args.out_jsonl, "a") as out_f:
+        for seed in seeds:
+            shuffled = reactions_all.sample(
+                n=reactions_all.height, seed=seed, with_replacement=False
             )
-            for mode in modes:
-                if (size, mode) in done:
-                    print(f"  {mode}: cached, skipping", flush=True)
-                    continue
-                cfg = SolverConfig(
-                    budget=args.budget,
-                    lp_mode=(mode == "LP"),
-                    balance_filter=args.balance_filter,
-                )
-                t0 = time.monotonic()
-                sol = build_and_solve(sub, mol_subset, cfg)
-                wall = time.monotonic() - t0
-                rec = {
-                    "size": size,
-                    "mode": mode,
-                    "n_molecules": int(mol_subset.height),
-                    "wall_seconds": wall,
-                    "status": sol.status,
-                    "profit": float(sol.objective_value),
-                    "n_activated": len(sol.activated_reactions),
-                    "n_sold": len(sol.sold_molecules),
-                    "n_purchased": len(sol.purchased_molecules),
-                    "timestamp": datetime.now(UTC).isoformat(),
-                }
-                out_f.write(json.dumps(rec) + "\n")
-                out_f.flush()
+            sizes = list(sizes_in)
+            if args.include_full and shuffled.height not in sizes:
+                sizes.append(shuffled.height)
+            sizes = sorted(set(sizes))
+            print(f"\n### seed={seed}  sizes={sizes}\nmodes: {modes}", flush=True)
+
+            for size in sizes:
+                if size > shuffled.height:
+                    print(f"size {size:,} > corpus {shuffled.height:,} — clipping", flush=True)
+                    size = shuffled.height
+                sub = shuffled.head(size)
+                mol_subset = _filter_molecules(sub, molecules)
                 print(
-                    f"  {mode}: {wall:7.2f}s  status={sol.status:<10}  "
-                    f"profit=${rec['profit']:>14,.0f}  "
-                    f"n_act={rec['n_activated']:>3}  n_sold={rec['n_sold']:>3}",
+                    f"\n=== seed={seed}  size={size:,} rxns, {mol_subset.height:,} mols ===",
                     flush=True,
                 )
-    finally:
-        out_f.close()
+                for mode in modes:
+                    if (seed, size, mode) in done:
+                        print(f"  {mode}: cached, skipping", flush=True)
+                        continue
+                    lp_mode, max_reactions = _parse_mode(mode)
+                    cfg = SolverConfig(
+                        budget=args.budget,
+                        lp_mode=lp_mode,
+                        max_reactions=max_reactions,
+                        balance_filter=args.balance_filter,
+                    )
+                    t0 = time.monotonic()
+                    sol = build_and_solve(sub, mol_subset, cfg)
+                    wall = time.monotonic() - t0
+                    rec = {
+                        "seed": seed,
+                        "size": size,
+                        "mode": mode,
+                        "n_molecules": int(mol_subset.height),
+                        "wall_seconds": wall,
+                        "status": sol.status,
+                        "profit": float(sol.objective_value),
+                        "n_activated": len(sol.activated_reactions),
+                        "n_sold": len(sol.sold_molecules),
+                        "n_purchased": len(sol.purchased_molecules),
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                    out_f.write(json.dumps(rec) + "\n")
+                    out_f.flush()
+                    print(
+                        f"  {mode}: {wall:7.2f}s  status={sol.status:<10}  "
+                        f"profit=${rec['profit']:>14,.0f}  "
+                        f"n_act={rec['n_activated']:>3}  n_sold={rec['n_sold']:>3}",
+                        flush=True,
+                    )
 
     print("\ndone.", flush=True)
     return 0
