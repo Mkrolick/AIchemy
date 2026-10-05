@@ -1,0 +1,86 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{natbib}
+
+\title{\textbf{Project Proposal: Profit-Maximizing Chemoenzymatic Synthesis Planning via MILP}}
+\author{Malcolm Krolick\\600.425/625 Declarative Methods --- Spring 2026}
+\date{February 27, 2026}
+
+\begin{document}
+\maketitle
+
+\section*{Problem Statement}
+
+Chemical synthesis planning traditionally answers: \emph{``Given a target molecule, what's the cheapest way to make it?''} This is the retrosynthesis problem, addressed by tools like SPARROW~\cite{sparrow} using MILP. Separately, minChemBio~\cite{minchembio} extends synthesis to include enzymatic reactions but only minimizes mode transitions, not economic cost.
+
+I propose a new problem: \textbf{``Given available starting materials, market prices, and access to both chemical AND enzymatic reactions, what should I make to maximize profit?''} This requires jointly optimizing: (1)~\emph{product selection}---which molecules to synthesize, (2)~\emph{route selection}---which pathways (chemical or enzymatic) to use, and (3)~\emph{resource allocation}---how much of each input to consume.
+
+This combines three elements never unified before: profit maximization, joint product/route selection at the molecular level, and chemoenzymatic reaction coverage.
+
+\section*{Proposed Approach}
+
+I will formulate this as a Mixed-Integer Linear Program (MILP):
+
+\textbf{Variables:} $x_p \in \{0,1\}$ (produce product $p$); $z_r \in \{0,1\}$ (use reaction $r$, chemical or enzymatic); $y_s \in \mathbb{R}^+$ (quantity of starting material $s$); $q_p \in \mathbb{R}^+$ (quantity of product $p$); $t_i \in \{0,1\}$ (transition at intermediate $i$).
+
+\textbf{Objective:}
+\[
+\max \sum_p (\text{price}_p \cdot q_p) - \sum_s (\text{cost}_s \cdot y_s) - \sum_r (\text{penalty}_r \cdot z_r) - \lambda \sum_i t_i
+\]
+
+The transition penalty $\lambda$ captures separation/purification costs when switching between chemical and biological modes.
+
+\textbf{Key Constraints:} Mass balance at intermediates; reaction selection implies reactant availability; stoichiometric consistency; transition detection at mode boundaries.
+
+\textbf{Data:} USPTO ($\sim$1.8M chemical reactions), MetaNetX ($\sim$57K enzymatic reactions), ChemSpace API for pricing.
+
+\section*{Related Work}
+
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{System} & \textbf{Direction} & \textbf{Profit Opt.} & \textbf{Chemoenz.} & \textbf{Selects Products} \\
+\midrule
+SPARROW~\cite{sparrow} & Retro & Cost min. & No & No (fixed targets) \\
+minChemBio~\cite{minchembio} & Retro & No & Yes & No (fixed targets) \\
+Biorefinery MILP~\cite{biorefinery} & Forward & Yes & No & Yes (plant-level) \\
+DESP~\cite{desp} & Bidir. & No & No & No (fixed targets) \\
+\textbf{This work} & \textbf{Bidir.} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes (molecular)} \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.5em}
+\noindent\textbf{The gap:} Retrosynthesis tools require fixed targets. Biorefinery optimization selects products but at plant level. No existing work combines bidirectional molecular-level synthesis with profit maximization and chemoenzymatic reactions.
+
+\section*{Expected Contributions}
+
+\begin{enumerate}
+    \item \textbf{Novel MILP formulation} unifying profit optimization, chemoenzymatic synthesis, and product selection
+    \item \textbf{Experimental comparison} against baselines: greedy product selection; sequential optimization; chemical-only variant
+    \item \textbf{Analysis} of when enzymatic routes improve profitability
+    \item \textbf{Scalability study} on reaction networks of varying size
+\end{enumerate}
+
+\section*{Feasibility \& Timeline}
+
+\textbf{Weeks 1--2:} Formalize MILP, integrate USPTO + MetaNetX. \textbf{Weeks 3--5:} Implement solver (PuLP/OR-Tools). \textbf{Weeks 6--7:} Experiments and baselines. \textbf{Week 8:} Paper writing.
+
+The project builds on open-source infrastructure (SPARROW and minChemBio codebases, OR-Tools) and public data.
+
+\section*{AI Disclosure}
+
+I am using Claude Code to assist with literature review, formulation refinement, and code development. All mathematical contributions and experimental design are my own responsibility.
+
+\begin{thebibliography}{9}
+\bibitem{sparrow} Fromer \& Coley. ``An algorithmic framework for synthetic cost-aware decision making in molecular design.'' \emph{Nature Computational Science}, 2024.
+
+\bibitem{minchembio} Anand et al. ``minChemBio: Expanding Chemical Synthesis with Chemo-Enzymatic Pathways Using Minimal Transitions.'' \emph{ACS Synthetic Biology}, 2025.
+
+\bibitem{biorefinery} ``Superstructure-Based Process and Supply Chain Optimization in Sugarcane-Microalgae Biorefineries.'' \emph{Processes}, 2024.
+
+\bibitem{desp} ``Double-Ended Synthesis Planning with Goal-Constrained Bidirectional Search.'' arXiv:2407.06334, 2024.
+\end{thebibliography}
+
+\end{document}
